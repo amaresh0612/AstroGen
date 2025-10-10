@@ -3,94 +3,109 @@ import os
 import uuid
 from openai import OpenAI
 
-# --- API Key Setup ---
+# ---------- Setup ----------
 api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not api_key:
-    st.error("🚨 OpenAI API key not found! Please set it in .streamlit/secrets.toml or environment variables.")
+    st.error("🚨 Missing API key in .streamlit/secrets.toml or environment.")
     st.stop()
 
 client = OpenAI(api_key=api_key)
 
-# --- Page Setup ---
 st.set_page_config(page_title="🔮 AstroInsights", page_icon="✨", layout="centered")
-st.title("🔮 AstroInsights – Your AI Astrology Companion")
-st.caption("Chat with specialized AI astrologers for Career, Relationship, and Overall Life 🌟")
 
-# --- Session-based user ID ---
+# ---------- Title ----------
+st.title("🔮 AstroGen – Your AI Astrology Companion")
+st.caption("Get personalized KP-style astrology insights for Overall Life, Career, and Relationships.")
+
+# ---------- Session ID (hidden, internal use only) ----------
 if "user_id" not in st.session_state:
     st.session_state.user_id = str(uuid.uuid4())[:8]
-st.info(f"🪄 Session ID: `{st.session_state.user_id}` (unique for your chat)")
 
-# --- Get birth details ---
-birth_details = st.text_area(
-    "Enter your birth details (Date, Time, Place, Gender):",
-    placeholder="e.g., 12 June 1990, 4:30 AM, Hyderabad, Male",
-    key="birth_details"
-)
-if not birth_details.strip():
-    st.info("Please enter your birth details to start.")
+# ---------- Collect birth details ----------
+with st.form("birth_form"):
+    st.subheader("Enter your birth details")
+    dob = st.date_input("Date of Birth")
+    tob = st.time_input("Time of Birth (24-hour format)")
+    place = st.text_input("Place of Birth (City, Country)")
+    gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+    submitted = st.form_submit_button("Generate My Astrology Summary ✨")
+
+if not submitted:
+    st.info("Please enter your birth details and click the button above.")
     st.stop()
 
-# --- Define agent system prompts ---
+# ---------- Short summary ----------
+birth_summary = f"""
+**Date:** {dob}  
+**Time:** {tob}  
+**Place:** {place}  
+**Gender:** {gender}
+"""
+st.success("✅ Birth details captured successfully.")
+st.markdown("### 🪄 Your Birth Summary")
+st.markdown(birth_summary)
+
+# ---------- Agent definitions ----------
 AGENTS = {
+    "overall": "You are a holistic astrologer guiding users about overall life trends, balance, and energy flow. Use KP-style reasoning.",
     "career": "You are an expert astrologer specializing in career predictions. Give precise, motivational, and actionable guidance.",
-    "relationship": "You are an astrologer focusing on relationship and emotional well-being. Offer kind, empathetic, and insightful responses.",
-    "overall": "You are a holistic astrologer guiding users about overall life trends, balance, and energy flow.",
+    "relationship": "You are an astrologer focusing on relationships and emotional well-being. Offer kind, empathetic, and insightful responses."
 }
 
-# --- Initialize chat history for each agent ---
-for agent in AGENTS:
-    if f"{agent}_history" not in st.session_state:
-        st.session_state[f"{agent}_history"] = [
-            {"role": "system", "content": AGENTS[agent]},
-            {"role": "user", "content": f"My birth details are: {birth_details}. Please share my {agent} prediction."},
-        ]
-
-# --- OpenAI call helper ---
-def ask_openai(chat_history):
+def ask_openai(role_prompt, question):
+    """Call the OpenAI API for a one-shot reading."""
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=chat_history,
-            max_tokens=500,
+            model="gpt-3.5-turbo",     # use 4o-mini if your account supports it
+            messages=[
+                {"role": "system", "content": role_prompt},
+                {"role": "user", "content": question},
+            ],
+            max_tokens=600,
             temperature=0.8,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"⚠️ Error: {e}"
 
-# --- Tabs for each astrologer ---
-tabs = st.tabs(["🧑‍💼 Career", "💕 Relationship", "🌟 Overall"])
+# ---------- Layout: three sections ----------
+st.markdown("---")
+st.markdown("## 🔮 Your Personalized Readings")
 
-for agent, tab in zip(AGENTS.keys(), tabs):
-    with tab:
-        st.markdown(f"### Chat with your {agent.capitalize()} astrologer ✨")
+col_overall, col_career, col_rel = st.columns(3)
 
-        # Show past messages
-        for msg in st.session_state[f"{agent}_history"]:
-            if msg["role"] == "user":
-                st.chat_message("user").markdown(msg["content"])
-            elif msg["role"] == "assistant":
-                st.chat_message("assistant").markdown(msg["content"])
+# --- Overall ---
+with col_overall:
+    st.markdown("### 🌟 Overall Life")
+    if st.button("Get Overall Reading"):
+        with st.spinner("Consulting the stars..."):
+            result = ask_openai(
+                AGENTS["overall"],
+                f"My birth details are: {birth_summary}. Please give my overall life prediction."
+            )
+        st.markdown(result)
 
-        # Clear chat button
-        if st.button(f"🧹 Clear {agent.capitalize()} Chat", key=f"clear_{agent}"):
-            st.session_state[f"{agent}_history"] = [
-                {"role": "system", "content": AGENTS[agent]},
-                {"role": "user", "content": f"My birth details are: {birth_details}. Please share my {agent} prediction."},
-            ]
-            st.success(f"{agent.capitalize()} chat reset successfully!")
-            st.rerun()
+# --- Career ---
+with col_career:
+    st.markdown("### 💼 Career")
+    if st.button("Get Career Reading"):
+        with st.spinner("Analyzing career..."):
+            result = ask_openai(
+                AGENTS["career"],
+                f"My birth details are: {birth_summary}. Please give my career prediction."
+            )
+        st.markdown(result)
 
-        # Chat input per tab
-        if user_input := st.chat_input(f"Ask about your {agent}..."):
-            st.session_state[f"{agent}_history"].append({"role": "user", "content": user_input})
-
-            with st.spinner("Consulting the stars... 🌠"):
-                reply = ask_openai(st.session_state[f"{agent}_history"])
-
-            st.session_state[f"{agent}_history"].append({"role": "assistant", "content": reply})
-            st.rerun()
+# --- Relationship ---
+with col_rel:
+    st.markdown("### 💖 Relationship")
+    if st.button("Get Relationship Reading"):
+        with st.spinner("Exploring relationships..."):
+            result = ask_openai(
+                AGENTS["relationship"],
+                f"My birth details are: {birth_summary}. Please give my relationship prediction."
+            )
+        st.markdown(result)
 
 st.markdown("---")
-st.caption("Made with ❤️ using Streamlit + OpenAI | Session-based personalized astrology 🔮")
+st.caption("Made with ❤️ using Streamlit + OpenAI | KP-style personalized astrology 🔮")
