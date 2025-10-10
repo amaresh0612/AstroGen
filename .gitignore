@@ -29,9 +29,6 @@ poetry.lock
 
 # --- Streamlit ---
 .streamlit/secrets.toml
-.streamlit/config.toml
-.streamlit/credentials.toml
-
 # --- Cache / Logs ---
 logs/
 *.log
