@@ -1,7 +1,13 @@
 import streamlit as st
 import os, uuid
 from openai import OpenAI
-from datetime import date
+from datetime import date, datetime
+
+try:
+    from kerykeion import AstrologicalSubject
+    KERYKEION_AVAILABLE = True
+except ImportError:
+    KERYKEION_AVAILABLE = False
 
 # ---------- Setup ----------
 st.set_page_config(page_title="🔮 AstroGen", page_icon="✨", layout="centered")
@@ -68,6 +74,90 @@ birth_summary = f"""
 st.success("✅ Birth details captured successfully.")
 st.markdown("### 🪄 Your Birth Summary")
 st.markdown(birth_summary)
+
+# ---------- Calculate Lagna, Moon Sign, Sun Sign using Kerykeion ----------
+if "chart_basics" not in st.session_state or submitted:
+    with st.spinner("Calculating your astrological chart..."):
+        if not KERYKEION_AVAILABLE:
+            st.session_state["chart_basics"] = """
+⚠️ **Kerykeion library not installed.**
+
+To get accurate astrological calculations, please run:
+```bash
+pip install kerykeion
+```
+
+Then restart your Streamlit app.
+"""
+        else:
+            try:
+                # Extract date and time components
+                year = birth_data['dob'].year
+                month = birth_data['dob'].month
+                day = birth_data['dob'].day
+                hour = birth_data['tob'].hour
+                minute = birth_data['tob'].minute
+                
+                # Parse city and nation from place
+                place_parts = birth_data['place'].split(',')
+                city = place_parts[0].strip() if len(place_parts) > 0 else "Mumbai"
+                nation = place_parts[-1].strip() if len(place_parts) > 1 else "IN"
+                
+                # Create astrological chart
+                chart = AstrologicalSubject(
+                    name="User",
+                    year=year,
+                    month=month,
+                    day=day,
+                    hour=hour,
+                    minute=minute,
+                    city=city,
+                    nation=nation
+                )
+                
+                # Get the signs (full names)
+                sign_names = {
+                    'Ari': 'Aries', 'Tau': 'Taurus', 'Gem': 'Gemini',
+                    'Can': 'Cancer', 'Leo': 'Leo', 'Vir': 'Virgo',
+                    'Lib': 'Libra', 'Sco': 'Scorpio', 'Sag': 'Sagittarius',
+                    'Cap': 'Capricorn', 'Aqu': 'Aquarius', 'Pis': 'Pisces'
+                }
+                
+                lagna = sign_names.get(chart.first_house['sign'], chart.first_house['sign'])
+                moon_sign = sign_names.get(chart.moon['sign'], chart.moon['sign'])
+                sun_sign = sign_names.get(chart.sun['sign'], chart.sun['sign'])
+                
+                # Format the output
+                chart_info = f"""
+**🔺 Lagna (Ascendant):** {lagna}  
+**🌙 Moon Sign (Rashi):** {moon_sign}  
+**☀️ Sun Sign:** {sun_sign}
+
+📍 Location: {chart.city}, {chart.nation}  
+🌍 Coordinates: {chart.lat:.2f}°N, {chart.lng:.2f}°E
+"""
+                st.session_state["chart_basics"] = chart_info
+                st.session_state["chart_object"] = chart  # Store for future use
+                
+            except Exception as e:
+                st.session_state["chart_basics"] = f"""
+⚠️ **Error calculating chart:** {str(e)}
+
+**Common issues:**
+- City name not recognized (try major city nearby)
+- Invalid date/time format
+- Network issue (kerykeion needs internet for coordinates)
+
+**Tip:** Use format like "Mumbai, India" or "New York, US"
+"""
+
+# Display chart basics
+st.markdown("### 🌙 Your Astrological Foundation")
+with st.container(border=True):
+    st.markdown(st.session_state["chart_basics"])
+    st.caption("💡 These form the basis of your astrological reading")
+
+st.info("👇 Click below to get detailed predictions for specific life areas")
 
 # ---------- Optimized Agent Prompts (Token-Efficient) ----------
 AGENTS = {
