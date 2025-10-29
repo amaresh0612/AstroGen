@@ -8,7 +8,74 @@ from timezonefinder import TimezoneFinder
 import pytz
 
 # ---------- Setup ----------
-st.set_page_config(page_title="🔮 AstroGen", page_icon="✨", layout="centered")
+st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout="centered")
+
+st.markdown("""
+    <style>
+        /* Hide the default assistant avatar (new Streamlit DOM structure) */
+        [data-testid="stChatMessageAvatar"] img {
+            display: none !important;
+        }
+
+        /* Add 🧘‍♂️ emoji instead of the avatar */
+        [data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
+            content: "🧘‍♂️";
+            font-size: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Optional: style for user emoji (if you want consistency) */
+        [data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
+            content: "🙂";
+            font-size: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+    <style>
+        /* Hide Streamlit's default bot avatar */
+        [data-testid="stChatMessageAvatarIcon"] { display: none !important; }
+
+        /* Header text */
+        .astro-header {
+            text-align: center;
+            color: white;
+            font-size: 1.2rem;
+            margin-bottom: 0;
+        }
+
+        .astro-sub {
+            text-align: center;
+            color: #ccc;
+            font-size: 0.9rem;
+            margin-top: 0;
+        }
+
+        /* Yogi Baba image styling */
+        .baba-img {
+            display: block;
+            margin: 10px auto;
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            border: 2px solid gold;
+            box-shadow: 0 0 15px gold;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# Custom header with image
+st.markdown(
+    "<h3 style='text-align:center; color:white;'>🙏 Namaste! 🧘‍♂️ I am Yogi Baba - Your Astrologer</h3>",
+    unsafe_allow_html=True
+)
+
 
 api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not api_key:
@@ -17,8 +84,6 @@ if not api_key:
 
 client = OpenAI(api_key=api_key)
 
-st.title("🔮 AstroGen — Your AI Astrology Companion")
-st.caption("Get personalized KP-style insights with complete chart analysis")
 
 # Initialize session state
 if "user_id" not in st.session_state:
@@ -348,11 +413,10 @@ if "chart_result" not in st.session_state or submitted:
             st.session_state["chart_result"] = chart_result
 
 # Display Chart
-st.markdown("### 🌙 Your Complete KP Chart")
+st.markdown("### Your Complete KP Chart")
 with st.container(border=True):
     st.markdown(st.session_state["chart_result"]['display'])
 
-st.info("👇 Get AI interpretations based on your complete chart analysis")
 
 # ---------- AI Agent Prompts ----------
 AGENTS = {
@@ -477,9 +541,102 @@ Please provide detailed KP analysis using the above data.
     except Exception as e:
         return f"⚠️ Error: {str(e)}"
 
-# ---------- Reading Buttons ----------
-st.markdown("---")
-st.markdown("## 🔮 Get Comprehensive AI Predictions")
+
+# --- Add Yogi Baba Avatar + Section ---
+baba_svg = """
+<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="12" cy="12" r="11" stroke="orange" stroke-width="1.5"/>
+<path d="M8 15c1-3 7-3 8 0M10 9a2 2 0 1 0 0.001-4.001A2 2 0 0 0 10 9zm4 0a2 2 0 1 0 0.001-4.001A2 2 0 0 0 14 9z" stroke="orange" stroke-width="1.2"/>
+<path d="M6 18c2 2 10 2 12 0" stroke="orange" stroke-width="1.2"/>
+</svg>
+"""
+
+
+# --- Initialize chat messages ---
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "🧘‍♂️ Hello! I am ready 😊 I have now seen all your stars — ask me anything about your destiny."}
+    ]
+
+# --- Show previous messages ---
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# --- Chat input ---
+if prompt := st.chat_input("Ask Yogi Baba about your chart..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Build contextual prompt from your existing variables
+    chart = st.session_state["chart_result"]
+
+    def safe_get(section, key, default="Not available"):
+        try:
+            return chart[section].get(key, default)
+        except Exception:
+            return default
+
+    # Gather key data
+    current_date = datetime.now().strftime("%B %d, %Y")
+
+    # Create readable chart summaries
+    house_summary = "\n".join([
+        f"- {name}: {data['sign']} | Sub-lord: {data['sublord']}"
+        for name, data in chart['houses'].items()
+    ])
+
+    planet_summary = "\n".join([
+        f"- {name}: {data['sign']} ({data['nakshatra']}) | Sub-lord: {data['sublord']}"
+        for name, data in chart['planets'].items()
+    ])
+
+    dasha = chart['dashas']
+    current_dasha = dasha['current']['lord'] if dasha['current'] else "Not available"
+    upcoming_dasha = dasha['upcoming']['lord'] if dasha['upcoming'] else "Not available"
+
+    # Combine all into a neat context block
+    context = f"""
+📅 Current Date: {current_date}
+
+🌙 Birth Details:
+Date of Birth: {dob}
+Time of Birth: {tob}
+Place of Birth: {place}
+Gender: {gender}
+
+🏠 House Cusps:
+{house_summary}
+
+🪐 Planetary Positions:
+{planet_summary}
+
+⏰ Vimshottari Dasha:
+Current Dasha: {current_dasha}
+Upcoming Dasha: {upcoming_dasha}
+"""
+
+
+    # --- Query GPT ---
+    with st.chat_message("assistant"):
+        with st.spinner("🔮 Consulting the stars..."):
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "You are Yogi Baba, a kind KP astrologer who gives wise and gentle advice."},
+                        {"role": "user", "content": context + "\n\nUser Question: " + prompt},
+                    ],
+                    max_tokens=800,
+                    temperature=0.7,
+                )
+                reply = response.choices[0].message.content.strip()
+            except Exception as e:
+                reply = f"⚠️ Error: {e}"
+
+            st.markdown(reply)
+            st.session_state.messages.append({"role": "assistant", "content": reply})
 
 col1, col2, col3 = st.columns(3)
 
@@ -515,5 +672,4 @@ if "relationship_result" in st.session_state:
         st.markdown(st.session_state["relationship_result"])
 
 st.markdown("---")
-st.caption("✨ Complete KP Analysis | PySwissEph + OpenAI")
 st.caption("⚠️ For guidance only. Not a substitute for professional advice.")
