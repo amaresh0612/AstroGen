@@ -671,5 +671,22 @@ if "relationship_result" in st.session_state:
     with st.container(border=True):
         st.markdown(st.session_state["relationship_result"])
 
-st.markdown("---")
-st.caption("⚠️ For guidance only. Not a substitute for professional advice.")
+st.markdown(
+    """
+    <div style='
+        position: fixed;
+        bottom: 10px;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        color: #bbb;
+        font-size: 13px;
+        background-color: rgba(0, 0, 0, 0);
+        padding: 5px 0;
+        z-index: 9999;
+    '>
+        ⚠️ For guidance only. Not a substitute for professional advice.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
