@@ -228,7 +228,7 @@ def get_house_number_from_degree(degree, house_cusps):
     return 1  # Default to first house
 
 def create_visual_chart(house_data, planet_data, house_cusps_degrees):
-    """Create an enhanced text-based visual representation of the KP chart"""
+    """Create an enhanced text-based visual representation of the KP chart in East Indian style"""
     # Initialize 12 houses
     houses = {i: [] for i in range(1, 13)}
     
@@ -237,50 +237,45 @@ def create_visual_chart(house_data, planet_data, house_cusps_degrees):
         house_num = get_house_number_from_degree(planet_info['full_degree'], house_cusps_degrees)
         houses[house_num].append(planet_name[:3])  # Use 3-letter abbreviation
     
-    # Create enhanced chart layout (North Indian style)
+    # Create East Indian style chart layout (3x3 grid with diagonal divisions)
     chart_lines = []
     chart_lines.append("```")
-    chart_lines.append("╔" + "═" * 66 + "╗")
-    chart_lines.append("║" + " " * 18 + "LAGNA CHART (KP)" + " " * 33 + "║")
-    chart_lines.append("╚" + "═" * 66 + "╝")
+    chart_lines.append("=" * 70)
+    chart_lines.append("              LAGNA CHART (KP) - East Indian Style")
+    chart_lines.append("=" * 70)
     chart_lines.append("")
-    chart_lines.append("  ┌" + "─" * 15 + "┬" + "─" * 15 + "┬" + "─" * 15 + "┬" + "─" * 15 + "┐")
     
-    # Row 1: Houses 12, 1, 2, 3
-    h12 = ", ".join(houses[12]) if houses[12] else ""
-    h1 = ", ".join(houses[1]) if houses[1] else ""
-    h2 = ", ".join(houses[2]) if houses[2] else ""
-    h3 = ", ".join(houses[3]) if houses[3] else ""
+    # Helper function to format house content
+    def format_house(house_num, width=18):
+        planets = ", ".join(houses[house_num]) if houses[house_num] else ""
+        return f"{planets:<{width}}"
     
-    chart_lines.append(f"  │ {h12:^13} │ {h1:^13} │ {h2:^13} │ {h3:^13} │")
-    chart_lines.append(f"  │    [XII]    │     [I]     │    [II]     │    [III]    │")
-    chart_lines.append("  ├" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┤")
+    # East Indian 3x3 Layout with diagonals
+    # Top row: 12, 1, 2
+    chart_lines.append("       ┌────────────────────┬────────────────────┬────────────────────┐")
+    chart_lines.append(f"       │ {format_house(12)}  │ {format_house(1)}  │  {format_house(2)} │")
+    chart_lines.append(f"       │ ╲      [XII]       │       [I]          │        [II]      ╱ │")
+    chart_lines.append("       ├────────────────────┼────────────────────┼────────────────────┤")
     
-    # Row 2: Houses 11, X, X, 4
-    h11 = ", ".join(houses[11]) if houses[11] else ""
-    h4 = ", ".join(houses[4]) if houses[4] else ""
+    # Middle row: 11, Center, 3
+    chart_lines.append(f"       │ {format_house(11)}  │                    │  {format_house(3)} │")
+    chart_lines.append(f"       │       [XI]         │   RASHI CHART      │       [III]        │")
+    chart_lines.append("       ├────────────────────┼────────────────────┼────────────────────┤")
     
-    chart_lines.append(f"  │ {h11:^13} │             │             │ {h4:^13} │")
-    chart_lines.append(f"  │    [XI]     │             │             │    [IV]     │")
-    chart_lines.append("  ├" + "─" * 15 + "┤" + " " * 15 + " " + " " * 15 + "├" + "─" * 15 + "┤")
+    # Bottom row: 10, 9, 4
+    chart_lines.append(f"       │ {format_house(10)}  │ {format_house(9)}  │  {format_house(4)} │")
+    chart_lines.append(f"       │ ╱      [X]         │       [IX]         │        [IV]      ╲ │")
+    chart_lines.append("       ├────────────────────┼────────────────────┼────────────────────┤")
     
-    # Row 3: Houses 10, X, X, 5
-    h10 = ", ".join(houses[10]) if houses[10] else ""
-    h5 = ", ".join(houses[5]) if houses[5] else ""
+    # Extra row showing houses 8, 7, 5, 6 in corners
+    chart_lines.append(f"       │ {format_house(8)}  │ {format_house(7)}  │  {format_house(5)} │")
+    chart_lines.append(f"       │ ╲     [VIII]       │      [VII]         │        [V]       ╱ │")
+    chart_lines.append("       └────────────────────┴────────────────────┴────────────────────┘")
+    chart_lines.append(f"                              {format_house(6):^20}")
+    chart_lines.append(f"                                   [VI]")
     
-    chart_lines.append(f"  │ {h10:^13} │             │             │ {h5:^13} │")
-    chart_lines.append(f"  │     [X]     │             │             │     [V]     │")
-    chart_lines.append("  ├" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┤")
-    
-    # Row 4: Houses 9, 8, 7, 6
-    h9 = ", ".join(houses[9]) if houses[9] else ""
-    h8 = ", ".join(houses[8]) if houses[8] else ""
-    h7 = ", ".join(houses[7]) if houses[7] else ""
-    h6 = ", ".join(houses[6]) if houses[6] else ""
-    
-    chart_lines.append(f"  │ {h9:^13} │ {h8:^13} │ {h7:^13} │ {h6:^13} │")
-    chart_lines.append(f"  │    [IX]     │   [VIII]    │    [VII]    │    [VI]     │")
-    chart_lines.append("  └" + "─" * 15 + "┴" + "─" * 15 + "┴" + "─" * 15 + "┴" + "─" * 15 + "┘")
+    chart_lines.append("")
+    chart_lines.append("=" * 70)
     chart_lines.append("```")
     
     return "\n".join(chart_lines)
@@ -482,13 +477,13 @@ with st.form("birth_form"):
         # Time input with 12-hour format
         time_col1, time_col2, time_col3 = st.columns([2, 2, 1])
         with time_col1:
-            hour_12 = st.text_input("Hour (1-12)", value="", max_chars=2, placeholder="HH")
+            hour_12 = st.text_input("Hour (1-12)", value="", max_chars=2, placeholder="HH", key="hour_input")
         with time_col2:
-            minute = st.text_input("Minute (0-59)", value="", max_chars=2, placeholder="MM")
+            minute = st.text_input("Minute (0-59)", value="", max_chars=2, placeholder="MM", key="minute_input")
         with time_col3:
-            am_pm = st.selectbox("AM/PM", ["AM", "PM"])
+            am_pm = st.selectbox("AM/PM", ["AM", "PM"], key="ampm_select")
         
-        gender = st.selectbox("Gender", ["Male", "Female", "Other"])
+        gender = st.selectbox("Gender", ["Male", "Female", "Other"], key="gender_select")
     
     submitted = st.form_submit_button("Generate Complete KP Chart ✨", use_container_width=True)
 
