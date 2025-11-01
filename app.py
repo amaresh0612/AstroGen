@@ -97,6 +97,10 @@ if "birth_details" not in st.session_state:
 def get_coordinates(place):
     """Get latitude and longitude for a place"""
     try:
+        # If no country is specified, append ", India" as default
+        if ',' not in place:
+            place = f"{place}, India"
+        
         geolocator = Nominatim(user_agent="astrologyapp")
         location = geolocator.geocode(place, timeout=10)
         if location:
@@ -209,6 +213,78 @@ def get_current_dasha(dashas, current_date):
             return current, upcoming
     return None, None
 
+def get_house_number_from_degree(degree, house_cusps):
+    """Determine which house a planet falls in based on degree"""
+    for i in range(12):
+        current_cusp = house_cusps[i] % 360
+        next_cusp = house_cusps[(i + 1) % 12] % 360
+        
+        if current_cusp < next_cusp:
+            if current_cusp <= degree < next_cusp:
+                return i + 1
+        else:  # Cusp crosses 0 degrees
+            if degree >= current_cusp or degree < next_cusp:
+                return i + 1
+    return 1  # Default to first house
+
+def create_visual_chart(house_data, planet_data, house_cusps_degrees):
+    """Create an enhanced text-based visual representation of the KP chart"""
+    # Initialize 12 houses
+    houses = {i: [] for i in range(1, 13)}
+    
+    # Place planets in houses based on their degrees
+    for planet_name, planet_info in planet_data.items():
+        house_num = get_house_number_from_degree(planet_info['full_degree'], house_cusps_degrees)
+        houses[house_num].append(planet_name[:3])  # Use 3-letter abbreviation
+    
+    # Create enhanced chart layout (North Indian style)
+    chart_lines = []
+    chart_lines.append("```")
+    chart_lines.append("╔" + "═" * 66 + "╗")
+    chart_lines.append("║" + " " * 18 + "LAGNA CHART (KP)" + " " * 33 + "║")
+    chart_lines.append("╚" + "═" * 66 + "╝")
+    chart_lines.append("")
+    chart_lines.append("  ┌" + "─" * 15 + "┬" + "─" * 15 + "┬" + "─" * 15 + "┬" + "─" * 15 + "┐")
+    
+    # Row 1: Houses 12, 1, 2, 3
+    h12 = ", ".join(houses[12]) if houses[12] else ""
+    h1 = ", ".join(houses[1]) if houses[1] else ""
+    h2 = ", ".join(houses[2]) if houses[2] else ""
+    h3 = ", ".join(houses[3]) if houses[3] else ""
+    
+    chart_lines.append(f"  │ {h12:^13} │ {h1:^13} │ {h2:^13} │ {h3:^13} │")
+    chart_lines.append(f"  │    [XII]    │     [I]     │    [II]     │    [III]    │")
+    chart_lines.append("  ├" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┤")
+    
+    # Row 2: Houses 11, X, X, 4
+    h11 = ", ".join(houses[11]) if houses[11] else ""
+    h4 = ", ".join(houses[4]) if houses[4] else ""
+    
+    chart_lines.append(f"  │ {h11:^13} │             │             │ {h4:^13} │")
+    chart_lines.append(f"  │    [XI]     │             │             │    [IV]     │")
+    chart_lines.append("  ├" + "─" * 15 + "┤" + " " * 15 + " " + " " * 15 + "├" + "─" * 15 + "┤")
+    
+    # Row 3: Houses 10, X, X, 5
+    h10 = ", ".join(houses[10]) if houses[10] else ""
+    h5 = ", ".join(houses[5]) if houses[5] else ""
+    
+    chart_lines.append(f"  │ {h10:^13} │             │             │ {h5:^13} │")
+    chart_lines.append(f"  │     [X]     │             │             │     [V]     │")
+    chart_lines.append("  ├" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┼" + "─" * 15 + "┤")
+    
+    # Row 4: Houses 9, 8, 7, 6
+    h9 = ", ".join(houses[9]) if houses[9] else ""
+    h8 = ", ".join(houses[8]) if houses[8] else ""
+    h7 = ", ".join(houses[7]) if houses[7] else ""
+    h6 = ", ".join(houses[6]) if houses[6] else ""
+    
+    chart_lines.append(f"  │ {h9:^13} │ {h8:^13} │ {h7:^13} │ {h6:^13} │")
+    chart_lines.append(f"  │    [IX]     │   [VIII]    │    [VII]    │    [VI]     │")
+    chart_lines.append("  └" + "─" * 15 + "┴" + "─" * 15 + "┴" + "─" * 15 + "┴" + "─" * 15 + "┘")
+    chart_lines.append("```")
+    
+    return "\n".join(chart_lines)
+
 def calculate_comprehensive_chart(dob, tob, place):
     """Calculate complete KP chart with all houses, planets, and dashas"""
     try:
@@ -281,6 +357,9 @@ def calculate_comprehensive_chart(dob, tob, place):
         house_cusps = houses_calc[0]
         ascendant = houses_calc[0][0] % 360
         
+        # Store cusp degrees for house placement calculation
+        house_cusps_degrees = [cusp % 360 for cusp in house_cusps[:12]]
+        
         house_data = {}
         house_names = ['1st (Lagna)', '2nd', '3rd', '4th', '5th', '6th', 
                        '7th', '8th', '9th', '10th', '11th', '12th']
@@ -319,28 +398,58 @@ def calculate_comprehensive_chart(dob, tob, place):
         }
         
         # ===== FORMAT FOR DISPLAY =====
+        
+        # Create visual chart
+        visual_chart = create_visual_chart(house_data, planet_data, house_cusps_degrees)
+        
+        # Create detailed planetary table
+        planet_table = "### 🪐 Planetary Positions (Detailed)\n\n"
+        planet_table += "| Planet | Sign | Degree | Nakshatra | Nak Lord | Sub-lord |\n"
+        planet_table += "|--------|------|--------|-----------|----------|----------|\n"
+        for name in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+            p = planet_data[name]
+            planet_table += f"| **{name}** | {p['sign']} | {p['degree']} | {p['nakshatra']} | {p['nakshatra_lord']} | {p['sublord']} |\n"
+        
+        # Create house cusps table
+        house_table = "\n### 🏠 House Cusps with Sub-lords\n\n"
+        house_table += "| House | Sign | Degree | Sub-lord | Significance |\n"
+        house_table += "|-------|------|--------|----------|-------------|\n"
+        
+        house_meanings = {
+            '1st (Lagna)': 'Self, Personality',
+            '2nd': 'Wealth, Family',
+            '3rd': 'Siblings, Courage',
+            '4th': 'Mother, Home',
+            '5th': 'Children, Romance',
+            '6th': 'Health, Service',
+            '7th': 'Marriage, Partnership',
+            '8th': 'Longevity, Occult',
+            '9th': 'Fortune, Father',
+            '10th': 'Career, Status',
+            '11th': 'Gains, Friends',
+            '12th': 'Loss, Spirituality'
+        }
+        
+        for name in house_names:
+            h = house_data[name]
+            meaning = house_meanings.get(name, '')
+            house_table += f"| **{name}** | {h['sign']} | {h['degree']} | {h['sublord']} | {meaning} |\n"
+        
         display_text = f"""
-### 🏠 House Cusps (Placidus)
-**1st House (Lagna):** {house_data['1st (Lagna)']['sign']} | Sub-lord: {house_data['1st (Lagna)']['sublord']}  
-**7th House:** {house_data['7th']['sign']} | Sub-lord: {house_data['7th']['sublord']}  
-**10th House:** {house_data['10th']['sign']} | Sub-lord: {house_data['10th']['sublord']}
+{visual_chart}
 
-### 🪐 Planetary Positions
-**Sun:** {planet_data['Sun']['sign']} | Nak: {planet_data['Sun']['nakshatra']} | Sub: {planet_data['Sun']['sublord']}  
-**Moon:** {planet_data['Moon']['sign']} | Nak: {planet_data['Moon']['nakshatra']} | Sub: {planet_data['Moon']['sublord']}  
-**Mars:** {planet_data['Mars']['sign']} | Sub: {planet_data['Mars']['sublord']}  
-**Mercury:** {planet_data['Mercury']['sign']} | Sub: {planet_data['Mercury']['sublord']}  
-**Jupiter:** {planet_data['Jupiter']['sign']} | Sub: {planet_data['Jupiter']['sublord']}  
-**Venus:** {planet_data['Venus']['sign']} | Sub: {planet_data['Venus']['sublord']}  
-**Saturn:** {planet_data['Saturn']['sign']} | Sub: {planet_data['Saturn']['sublord']}  
-**Rahu:** {planet_data['Rahu']['sign']} | Sub: {planet_data['Rahu']['sublord']}  
-**Ketu:** {planet_data['Ketu']['sign']} | Sub: {planet_data['Ketu']['sublord']}
+{planet_table}
 
-### ⏰ Vimshottari Dasha
-**Current:** {dasha_info['current']['lord']} Dasha ({dasha_info['current']['start']} to {dasha_info['current']['end']})  
-**Upcoming:** {dasha_info['upcoming']['lord']} Dasha (starts {dasha_info['upcoming']['start']})
+{house_table}
 
-📍 {place} ({lat:.2f}°, {lng:.2f}°)
+### ⏰ Vimshottari Dasha (Planetary Periods)
+**Current Dasha:** {dasha_info['current']['lord']} Dasha  
+**Period:** {dasha_info['current']['start']} to {dasha_info['current']['end']} ({dasha_info['current']['years']} years)  
+**Upcoming:** {dasha_info['upcoming']['lord']} Dasha starts on {dasha_info['upcoming']['start']} ({dasha_info['upcoming']['years']} years)
+
+📍 **Location:** {place} ({lat:.2f}°, {lng:.2f}°)  
+🌍 **Ayanamsa:** KP (Krishnamurti)  
+🏠 **House System:** Placidus
 """
         
         return {
@@ -348,7 +457,8 @@ def calculate_comprehensive_chart(dob, tob, place):
             'planets': planet_data,
             'dashas': dasha_info,
             'location': {'place': place, 'lat': lat, 'lng': lng},
-            'display': display_text
+            'display': display_text,
+            'visual_chart': visual_chart
         }, None
         
     except Exception as e:
@@ -357,26 +467,73 @@ def calculate_comprehensive_chart(dob, tob, place):
 # ---------- Birth Details Form ----------
 with st.form("birth_form"):
     st.subheader("Enter your birth details")
+    
     col1, col2 = st.columns(2)
     with col1:
         dob = st.date_input(
             "Date of Birth",
-            value=datetime(1990, 1, 1).date(),
+            value=None,
             min_value=datetime(1900, 1, 1).date(),
             max_value=datetime.today().date(),
+            format="DD/MM/YYYY"
         )
-        place = st.text_input("Place of Birth", value="Mumbai, India")
+        place = st.text_input("Place of Birth", value="", placeholder="e.g., Mumbai, India")
     with col2:
-        tob = st.time_input("Time of Birth", value=datetime.strptime("12:00", "%H:%M").time())
+        # Time input with 12-hour format
+        time_col1, time_col2, time_col3 = st.columns([2, 2, 1])
+        with time_col1:
+            hour_12 = st.text_input("Hour (1-12)", value="", max_chars=2, placeholder="HH")
+        with time_col2:
+            minute = st.text_input("Minute (0-59)", value="", max_chars=2, placeholder="MM")
+        with time_col3:
+            am_pm = st.selectbox("AM/PM", ["AM", "PM"])
+        
         gender = st.selectbox("Gender", ["Male", "Female", "Other"])
     
     submitted = st.form_submit_button("Generate Complete KP Chart ✨", use_container_width=True)
 
 if submitted:
+    # Validate inputs
+    if dob is None:
+        st.error("⚠️ Please select a date of birth")
+        st.stop()
+    if not hour_12.strip() or not minute.strip():
+        st.error("⚠️ Please enter both hour and minute")
+        st.stop()
+    if not place.strip():
+        st.error("⚠️ Please enter a place of birth")
+        st.stop()
+    
+    # Validate hour and minute are numeric
+    try:
+        hour_val = int(hour_12)
+        minute_val = int(minute)
+        
+        if hour_val < 1 or hour_val > 12:
+            st.error("⚠️ Hour must be between 1 and 12")
+            st.stop()
+        if minute_val < 0 or minute_val > 59:
+            st.error("⚠️ Minute must be between 0 and 59")
+            st.stop()
+            
+    except ValueError:
+        st.error("⚠️ Please enter valid numbers for hour and minute")
+        st.stop()
+    
+    # Convert 12-hour format to 24-hour format
+    hour_24 = hour_val if am_pm == "AM" and hour_val != 12 else (0 if am_pm == "AM" and hour_val == 12 else (hour_val if hour_val == 12 else hour_val + 12))
+    
+    # Convert to time object (24-hour format)
+    tob = datetime.strptime(f"{hour_24:02d}:{minute_val:02d}", "%H:%M").time()
+    
+    # Store time display in 12-hour format
+    time_display = f"{hour_val:02d}:{minute_val:02d} {am_pm}"
+    
     st.session_state.birth_details = {
         "dob": dob,
         "tob": tob,
-        "place": place,
+        "tob_display": time_display,
+        "place": place.strip(),
         "gender": gender
     }
     if "chart_result" in st.session_state:
@@ -390,9 +547,10 @@ birth_data = st.session_state.birth_details
 
 st.success("✅ Birth details captured")
 with st.expander("📋 View Birth Details"):
+    display_time = birth_data.get('tob_display', birth_data['tob'].strftime('%I:%M %p'))
     st.markdown(f"""
     **Date:** {birth_data['dob']}  
-    **Time:** {birth_data['tob']}  
+    **Time:** {display_time}  
     **Place:** {birth_data['place']}  
     **Gender:** {birth_data['gender']}
     """)
@@ -413,9 +571,174 @@ if "chart_result" not in st.session_state or submitted:
             st.session_state["chart_result"] = chart_result
 
 # Display Chart
-st.markdown("### Your Complete KP Chart")
+st.markdown("### 🌙 Your Complete KP Chart")
 with st.container(border=True):
     st.markdown(st.session_state["chart_result"]['display'])
+
+# Add Download Button
+def create_downloadable_report():
+    """Create a comprehensive text report for download"""
+    chart = st.session_state["chart_result"]
+    birth = st.session_state["birth_details"]
+    
+    display_time = birth.get('tob_display', birth['tob'].strftime('%I:%M %p'))
+    
+    report = f"""
+╔═══════════════════════════════════════════════════════════════════╗
+                    KP ASTROLOGY CHART REPORT
+╚═══════════════════════════════════════════════════════════════════╝
+
+BIRTH DETAILS:
+───────────────────────────────────────────────────────────────────
+Name/ID: {st.session_state['user_id']}
+Date of Birth: {birth['dob']}
+Time of Birth: {display_time}
+Place of Birth: {birth['place']}
+Gender: {birth['gender']}
+Location: {chart['location']['lat']}°, {chart['location']['lng']}°
+
+╔═══════════════════════════════════════════════════════════════════╗
+
+{chart.get('visual_chart', '').replace('```', '')}
+
+╚═══════════════════════════════════════════════════════════════════╝
+
+╔═══════════════════════════════════════════════════════════════════╗
+                    DETAILED PLANETARY DATA
+╚═══════════════════════════════════════════════════════════════════╝
+
+"""
+    
+    for name in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+        p = chart['planets'][name]
+        report += f"""
+{name.upper()}:
+  Sign: {p['sign']}
+  Degree: {p['degree']}
+  Nakshatra: {p['nakshatra']} (Lord: {p['nakshatra_lord']})
+  Sub-lord: {p['sublord']} ⭐ (KP Significator)
+"""
+    
+    report += """
+╔═══════════════════════════════════════════════════════════════════╗
+                    HOUSE CUSPS ANALYSIS
+╚═══════════════════════════════════════════════════════════════════╝
+"""
+    
+    house_meanings = {
+        '1st (Lagna)': 'Self, Personality, Physical Body',
+        '2nd': 'Wealth, Family, Speech',
+        '3rd': 'Siblings, Courage, Communication',
+        '4th': 'Mother, Home, Property, Education',
+        '5th': 'Children, Romance, Creativity, Speculation',
+        '6th': 'Health, Service, Enemies, Debts',
+        '7th': 'Marriage, Partnership, Spouse',
+        '8th': 'Longevity, Occult, Inheritance, Transformation',
+        '9th': 'Fortune, Father, Higher Education, Religion',
+        '10th': 'Career, Status, Profession, Reputation',
+        '11th': 'Gains, Income, Friends, Desires',
+        '12th': 'Loss, Expenses, Spirituality, Foreign Lands'
+    }
+    
+    for house_name in ['1st (Lagna)', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th']:
+        h = chart['houses'][house_name]
+        report += f"""
+{house_name} HOUSE - {house_meanings[house_name]}
+  Sign: {h['sign']}
+  Degree: {h['degree']}
+  Nakshatra: {h['nakshatra']}
+  Sub-lord: {h['sublord']} ⭐ (Key Significator)
+"""
+    
+    report += f"""
+╔═══════════════════════════════════════════════════════════════════╗
+                    VIMSHOTTARI DASHA PERIODS
+╚═══════════════════════════════════════════════════════════════════╝
+
+CURRENT DASHA:
+  Lord: {chart['dashas']['current']['lord']}
+  Period: {chart['dashas']['current']['start']} to {chart['dashas']['current']['end']}
+  Duration: {chart['dashas']['current']['years']} years
+
+UPCOMING DASHA:
+  Lord: {chart['dashas']['upcoming']['lord']}
+  Starts: {chart['dashas']['upcoming']['start']}
+  Duration: {chart['dashas']['upcoming']['years']} years
+
+╔═══════════════════════════════════════════════════════════════════╗
+                    CALCULATION DETAILS
+╚═══════════════════════════════════════════════════════════════════╝
+
+Ayanamsa: KP (Krishnamurti)
+House System: Placidus
+Ephemeris: Swiss Ephemeris
+Calculation Engine: PySwissEph
+
+╔═══════════════════════════════════════════════════════════════════╗
+                    AI PREDICTIONS
+╚═══════════════════════════════════════════════════════════════════╝
+"""
+    
+    # Add AI predictions if available
+    if "overall_result" in st.session_state:
+        report += f"""
+OVERALL LIFE READING:
+───────────────────────────────────────────────────────────────────
+{st.session_state['overall_result']}
+
+"""
+    
+    if "career_result" in st.session_state:
+        report += f"""
+CAREER READING:
+───────────────────────────────────────────────────────────────────
+{st.session_state['career_result']}
+
+"""
+    
+    if "relationship_result" in st.session_state:
+        report += f"""
+RELATIONSHIP READING:
+───────────────────────────────────────────────────────────────────
+{st.session_state['relationship_result']}
+
+"""
+    
+    report += f"""
+╔═══════════════════════════════════════════════════════════════════╗
+                        DISCLAIMER
+╚═══════════════════════════════════════════════════════════════════╝
+
+This astrological report is for guidance and entertainment purposes
+only. It should not be considered as a substitute for professional
+advice in matters of health, finance, legal, or other areas requiring
+expert consultation.
+
+Astrology is an interpretive art, and predictions may vary based on
+various factors and individual circumstances.
+
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Report ID: {st.session_state['user_id']}
+
+╔═══════════════════════════════════════════════════════════════════╗
+           © AstroGen - KP Astrology Report
+╚═══════════════════════════════════════════════════════════════════╝
+"""
+    
+    return report
+
+# Download button
+col1, col2 = st.columns([3, 1])
+with col2:
+    if st.session_state.get("chart_result"):
+        report_text = create_downloadable_report()
+        st.download_button(
+            label="📥 Download Chart",
+            data=report_text,
+            file_name=f"KP_Chart_{birth_data['dob']}_{st.session_state['user_id']}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
 
 
 # ---------- AI Agent Prompts ----------
@@ -504,10 +827,12 @@ def get_ai_reading(agent_type):
             for name, data in chart['houses'].items()
         ])
         
+        display_time = birth_data.get('tob_display', birth_data['tob'].strftime('%I:%M %p'))
+        
         chart_summary = f"""
 Birth Details:
 Date: {birth_data['dob']}
-Time: {birth_data['tob']}
+Time: {display_time}
 Place: {birth_data['place']}
 Gender: {birth_data['gender']}
 
@@ -580,6 +905,10 @@ if prompt := st.chat_input("Ask Yogi Baba about your chart..."):
 
     # Gather key data
     current_date = datetime.now().strftime("%B %d, %Y")
+    dob = birth_data['dob']
+    tob_display = birth_data.get('tob_display', birth_data['tob'].strftime('%I:%M %p'))
+    place = birth_data['place']
+    gender = birth_data['gender']
 
     # Create readable chart summaries
     house_summary = "\n".join([
@@ -602,7 +931,7 @@ if prompt := st.chat_input("Ask Yogi Baba about your chart..."):
 
 🌙 Birth Details:
 Date of Birth: {dob}
-Time of Birth: {tob}
+Time of Birth: {tob_display}
 Place of Birth: {place}
 Gender: {gender}
 
