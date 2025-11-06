@@ -24,6 +24,117 @@ from PIL import Image, ImageDraw, ImageFont
 # ---------- Setup ----------
 st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout="centered")
 
+# ---------- Theme-aware CSS (replace existing CSS blocks & header) ----------
+st.markdown("""
+<style>
+/* Streamlit sets data-theme on <html> as "dark" or "light".
+   We use that to pick appropriate colors so UI works in both modes. */
+
+/* Small avatar tweaks (same behaviour) */
+[data-testid="stChatMessageAvatar"] img { display: none !important; }
+[data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
+    content: "🧘‍♂️"; font-size: 26px; display: flex;
+    align-items: center; justify-content: center;
+}
+[data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
+    content: "🙂"; font-size: 22px; display: flex;
+    align-items: center; justify-content: center;
+}
+
+/* Header: use a class, not an inline white color */
+.app-header {
+    text-align:center;
+    margin-bottom: 10px;
+    font-weight: 700;
+    font-size: 20px;
+}
+
+/* Theme-aware header color */
+html[data-theme="dark"] .app-header { color: #fff; }
+html[data-theme="light"] .app-header { color: #3b3b3b; }
+
+/* Card / form container */
+.card {
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 18px;
+}
+
+/* card background & border tuned per theme */
+html[data-theme="dark"] .card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.04);
+}
+html[data-theme="light"] .card {
+    background: linear-gradient(180deg, rgba(255,255,255,1), rgba(250,250,250,1));
+    box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    border: 1px solid rgba(0,0,0,0.08);
+}
+
+/* Card title color per theme */
+html[data-theme="dark"] .card h2 { color: #ffb74d; }
+html[data-theme="light"] .card h2 { color: #8B4513; }
+
+/* muted text */
+html[data-theme="dark"] .card .muted { color: #bdbdbd; }
+html[data-theme="light"] .card .muted { color: #666666; }
+
+/* Input / select styling: theme-aware so text is readable */
+.stTextInput>div>div>input, .stTextInput>div>div>textarea,
+.stSelectbox>div>div>div>div, .stMultiSelect>div>div>div>div {
+    border-radius: 8px !important;
+    padding: 12px 10px !important;
+    font-size: 15px !important;
+    border-width: 1px !important;
+}
+
+/* Dark theme inputs */
+html[data-theme="dark"] .stTextInput>div>div>input,
+html[data-theme="dark"] .stTextInput>div>div>textarea,
+html[data-theme="dark"] .stSelectbox>div>div>div>div,
+html[data-theme="dark"] .stMultiSelect>div>div>div>div {
+    background: rgba(255,255,255,0.02) !important;
+    border-color: rgba(255,255,255,0.06) !important;
+    color: #e6e6e6 !important;
+}
+
+/* Light theme inputs */
+html[data-theme="light"] .stTextInput>div>div>input,
+html[data-theme="light"] .stTextInput>div>div>textarea,
+html[data-theme="light"] .stSelectbox>div>div>div>div,
+html[data-theme="light"] .stMultiSelect>div>div>div>div {
+    background: #ffffff !important;
+    border-color: rgba(0,0,0,0.12) !important;
+    color: #222222 !important;
+}
+
+/* Buttons: keep your orange look but ensure contrast in light theme */
+div.stButton > button:first-child {
+    background-color: #ff8c00;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 15px;
+    border: none;
+}
+div.stButton > button:first-child:hover {
+    background-color: #ff9f33;
+    transform: translateY(-1px);
+}
+
+/* small text / captions */
+html[data-theme="dark"] .small-muted { color: #9f9f9f; }
+html[data-theme="light"] .small-muted { color: #666666; }
+
+/* small safety: ensure any previously hardcoded white text is overridden in light theme */
+html[data-theme="light"] body, html[data-theme="light"] .stApp, html[data-theme="light"] .css-1d391kg {
+    color: inherit !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.markdown("""
     <style>
         [data-testid="stChatMessageAvatar"] img { display: none !important; }
