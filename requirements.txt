@@ -2,8 +2,8 @@ streamlit
 openai>=1.0.0
 kerykeion
 swisseph
-timezonefinder
 geopy
 reportlab
-pycairo
-rlPyCairo
+pillow
+timezonefinder==6.2.0
+rlPyCairo==0.4.0
