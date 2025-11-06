@@ -4,3 +4,6 @@ kerykeion
 swisseph
 timezonefinder
 geopy
+reportlab
+pycairo
+rlPyCairo
