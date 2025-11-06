@@ -395,7 +395,7 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
     bg = (255, 255, 255)
     line_color = (0, 0, 0)
     planet_color = (2, 48, 99)
-    house_num_color = (80, 80, 80)
+    house_num_color = (40, 40, 40)
     small_text_color = (70, 70, 70)
 
     im = Image.new("RGB", (size, size), bg)
@@ -436,33 +436,14 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
         12: (ox + 0.80 * cell, oy + 2.80 * cell, 'center'),
     }
 
-    # where to draw the house number label
-    house_label_positions = {
-        1:  (ox + 1.06 * cell, oy + 2.06 * cell),
-        2:  (ox + 2.22 * cell, oy + 1.66 * cell),
-        3:  (ox + 2.22 * cell, oy + 0.98 * cell),
-        4:  (ox + 2.22 * cell, oy + 0.12 * cell),
-        5:  (ox + 1.06 * cell, oy + 0.12 * cell),
-        6:  (ox + 1.06 * cell, oy + 1.06 * cell),
-        7:  (ox + 0.12 * cell, oy + 1.06 * cell),
-        8:  (ox + 0.12 * cell, oy + 1.66 * cell),
-        9:  (ox + 1.06 * cell, oy + 1.66 * cell),
-        10: (ox + 0.12 * cell, oy + 0.12 * cell),
-        11: (ox + 0.12 * cell, oy + 1.36 * cell),
-        12: (ox + 0.60 * cell, oy + 2.46 * cell),
-    }
-
     # Build houses -> list of planet labels (use full_degree correctly)
     houses = {i: [] for i in range(1, 13)}
     for pname, pdata in planet_data.items():
-        # BUG FIX: ensure we pass the numeric full_degree, not the whole dict
         full_deg = pdata.get('full_degree') if isinstance(pdata, dict) else pdata
         hnum = get_house_number_from_degree(full_deg, house_cusps_degrees)
-        # prepare label: abbreviation + optional degree/sign
         label = _planet_abbr(pname)
         extras = []
         if show_degrees:
-            # pdata['degree'] already formatted like "xx.yy°" in your pipeline
             deg_text = pdata.get('degree') or f"{(full_deg % 30):.2f}°"
             extras.append(deg_text)
         if show_signs:
@@ -473,35 +454,54 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
 
     # fonts (try to load DejaVu; fallback to PIL default)
     try:
-        house_font_size = max(10, int(size * 0.02))
-        planet_font_size = max(12, int(size * 0.032))
+        house_font_size = max(10, int(size * 0.018))
+        planet_font_size = max(11, int(size * 0.030))
         font_house = ImageFont.truetype("DejaVuSans-Bold.ttf", size=house_font_size)
         font_planet = ImageFont.truetype("DejaVuSans-Bold.ttf", size=planet_font_size)
-        font_small = ImageFont.truetype("DejaVuSans.ttf", size=max(9, int(size * 0.015)))
+        font_small = ImageFont.truetype("DejaVuSans.ttf", size=max(9, int(size * 0.014)))
     except Exception:
         font_house = ImageFont.load_default()
         font_planet = ImageFont.load_default()
         font_small = ImageFont.load_default()
 
-    # draw house numbers
-    for hn in range(1, 13):
-        xh, yh = house_label_positions[hn]
-        label = str(hn)
-        # center the house number
-        try:
-            hb = draw.textbbox((0, 0), label, font=font_house)
-            hw, hh = hb[2] - hb[0], hb[3] - hb[1]
-        except AttributeError:
-            hw, hh = draw.textsize(label, font=font_house)
-        draw.text((xh - hw / 2, yh - hh / 2), label, fill=house_num_color, font=font_house)
+    # -----------------------
+    # Draw only house #1 (bottom center). Remove other house numbers.
+    # -----------------------
+    # compute house 1 position (use same anchor as positions[1])
+    try:
+        h1_x, h1_y, _ = positions.get(1, (ox + 1.5*cell, oy + 2.68*cell, 'center'))
+    except Exception:
+        h1_x, h1_y = (ox + 1.5*cell, oy + 2.68*cell)
+
+    label = "1"
+    try:
+        hb = draw.textbbox((0, 0), label, font=font_house)
+        hw, hh = hb[2] - hb[0], hb[3] - hb[1]
+    except AttributeError:
+        hw, hh = draw.textsize(label, font=font_house)
+
+    # clamp inside inner square
+    margin = max(6, int(size * 0.01))
+    min_x = ox + margin
+    max_x = ox + inner - margin - hw
+    min_y = oy + margin
+    max_y = oy + inner - margin - hh
+    tx = max(min_x, min(h1_x - hw / 2, max_x))
+    ty = max(min_y, min(h1_y - hh / 2, max_y))
+
+    # draw subtle background for readability and then the number
+    try:
+        draw.rectangle([tx - 4, ty - 2, tx + hw + 4, ty + hh + 2], fill=bg)
+    except Exception:
+        pass
+    draw.text((tx, ty), label, fill=house_num_color, font=font_house)
 
     # draw planets inside houses (stack if multiple)
     for h in range(1, 13):
         items = houses[h]
         if not items:
             continue
-        x, y, anchor = positions[h]
-        # build stacked lines for planets inside same house
+        x, y, anchor = positions.get(h, (ox + 1.5*cell, oy + 1.5*cell, 'center'))
         labels = [lab for (_, lab) in items]
         # compute total height to vertically center the stack
         line_heights = []
@@ -513,7 +513,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
                 _, lh = draw.textsize(lab, font=font_planet)
             line_heights.append(lh)
         total_h = sum(line_heights) + (len(line_heights) - 1) * int(size * 0.01)
-        # top y of first line
         start_y = y - (total_h / 2)
         cur_y = start_y
         for idx, lab in enumerate(labels):
@@ -523,23 +522,23 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
             except AttributeError:
                 w, hgt = draw.textsize(lab, font=font_planet)
             if anchor == 'left':
-                tx = x
+                txp = x
             elif anchor == 'right':
-                tx = x - w
+                txp = x - w
             else:
-                tx = x - (w / 2.0)
-            draw.text((tx, cur_y), lab, fill=planet_color, font=font_planet)
-            # draw small bullet / circle to the left of label for clarity
+                txp = x - (w / 2.0)
+            draw.text((txp, cur_y), lab, fill=planet_color, font=font_planet)
+            # small bullet to the left of label
             try:
                 circle_r = max(3, int(size * 0.006))
-                draw.ellipse((tx - circle_r*2 - 2, cur_y + hgt/2 - circle_r, tx - 2, cur_y + hgt/2 + circle_r),
+                draw.ellipse((txp - circle_r*2 - 2, cur_y + hgt/2 - circle_r, txp - 2, cur_y + hgt/2 + circle_r),
                              fill=planet_color)
             except Exception:
                 pass
             cur_y += hgt + int(size * 0.01)
 
     # small legend / note at bottom (optional)
-    note = "House numbers + planets shown. Generated by AstroGen."
+    note = "House 1 shown. Other house numbers are hidden. Generated by AstroGen."
     try:
         nb = draw.textbbox((0, 0), note, font=font_small)
         nw = nb[2] - nb[0]; nh = nb[3] - nb[1]
