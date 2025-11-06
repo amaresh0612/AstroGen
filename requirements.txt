@@ -5,4 +5,4 @@ swisseph
 geopy
 reportlab
 pillow
-timezonefinder==6.2.0
+timezonefinder==5.2.0
