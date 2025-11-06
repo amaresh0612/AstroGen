@@ -27,54 +27,20 @@ st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout=
 # ---------- Theme-aware CSS (replace existing CSS blocks & header) ----------
 
 st.markdown("""
-<style>
-/* High-specificity, theme-aware global overrides to ensure readable colors in both modes. */
-html, body, .stApp, [data-testid="stAppViewContainer"], .block-container {
-background: var(--bg, #ffffff) !important;
-color: var(--fg, #222222) !important;
-}
+    <style>
+        [data-testid="stChatMessageAvatar"] img { display: none !important; }
+        [data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
+            content: "🧘‍♂️"; font-size: 26px; display: flex;
+            align-items: center; justify-content: center;
+        }
+        [data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
+            content: "🙂"; font-size: 22px; display: flex;
+            align-items: center; justify-content: center;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-
-/* Dark-mode variables */
-html[data-theme="dark"] {
---bg: #0f1720;
---card-bg: rgba(255,255,255,0.02);
---fg: #e6e6e6;
---muted: #bdbdbd;
---panel-border: rgba(255,255,255,0.04);
---accent: #ffb74d;
-}
-
-
-/* Light-mode variables */
-html[data-theme="light"] {
---bg: #ffffff;
---card-bg: #fffdf8;
---fg: #222222;
---muted: #666666;
---panel-border: rgba(0,0,0,0.08);
---accent: #8B4513;
-}
-
-
-/* Force app background & card backgrounds */
-[data-testid="stAppViewContainer"] > .main {
-background: var(--bg) !important;
-}
-
-
-/* Card / container look */
-.card {
-border-radius: 12px;
-padding: 20px;
-margin-bottom: 18px;
-background: var(--card-bg) !important;
-box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-border: 1px solid var(--panel-border) !important;
-}
-
-
-""", height=30)
+st.markdown("<h3 style='text-align:center; color:white;'>🙏 Namaste! 🧘‍♂️ I am Yogi Baba - Your Astrologer</h3>", unsafe_allow_html=True)
 
 api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not api_key:
