@@ -845,6 +845,136 @@ with st.expander("📋 View Birth Details"):
 """
     )
 
+# ---------- Moonshine · Lagna · Sunshine Summary (insert BEFORE chart generation) ----------
+def _deg_to_sign_text(deg):
+    """Return (sign_name, deg_in_sign_float, deg_text). deg in 0..360"""
+    signs = ['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
+             'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces']
+    deg = float(deg) % 360.0
+    sign_index = int(deg // 30)
+    deg_in_sign = deg - (sign_index * 30)
+    d = int(deg_in_sign)
+    minutes = int(round((deg_in_sign - d) * 60))
+    if minutes == 60:
+        d += 1
+        minutes = 0
+    deg_text = f"{d}°{minutes:02d}'"
+    return signs[sign_index], deg_in_sign, deg_text
+
+def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
+    """
+    Build a UTC datetime using geocoded timezone (via your helpers) then return swe.julday(UT).
+    Returns (jd_ut, tz_name, lat, lng) or (None, None, None, None) on failure.
+    """
+    try:
+        lat, lng = get_coordinates(place_str)
+        if lat is None or lng is None:
+            return None, None, None, None
+        # combine naive local date+time
+        local_dt = datetime.combine(dob_date, tob_time)
+        # get tz name via timezonefinder
+        tf = TimezoneFinder()
+        tz_name = tf.timezone_at(lat=lat, lng=lng)
+        if not tz_name:
+            # fallback: use UTC offset helper
+            offset_hours = get_timezone_offset(lat, lng, local_dt)
+            utc_dt = local_dt - timedelta(hours=offset_hours)
+        else:
+            tz = pytz.timezone(tz_name)
+            if local_dt.tzinfo is None:
+                local_dt = tz.localize(local_dt)
+            utc_dt = local_dt.astimezone(pytz.utc)
+        year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+        hour_decimal = utc_dt.hour + utc_dt.minute / 60.0 + utc_dt.second / 3600.0 + utc_dt.microsecond / 3_600_000_000.0
+        jd_ut = swe.julday(year, month, day, hour_decimal, swe.GREG_CAL)
+        return jd_ut, tz_name, lat, lng
+    except Exception:
+        return None, None, None, None
+
+def _calc_planet_longitude(jd_ut, planet_const):
+    """Return ecliptic longitude (0..360) for given planet constant."""
+    try:
+        res = swe.calc_ut(jd_ut, planet_const, swe.FLG_SIDEREAL)
+        # common shapes: ([lon, lat, dist], flag) or [lon,lat,dist]
+        if isinstance(res, (list, tuple)):
+            if isinstance(res[0], (list, tuple)):
+                lon = res[0][0]
+            else:
+                lon = res[0]
+        else:
+            lon = float(res)
+        return float(lon) % 360.0
+    except Exception:
+        return None
+
+def _calc_ascendant(jd_ut, lat, lng):
+    """Return ascendant longitude (0..360)."""
+    try:
+        cusps, ascmc = swe.houses(jd_ut, lat, lng)
+        asc = ascmc[0]
+        return float(asc) % 360.0
+    except Exception:
+        return None
+
+def build_moon_lagna_sun_summary_for_birth(dob_date, tob_time, place_str):
+    """
+    Returns dict with 'sun', 'moon', 'lagna' each containing sign, deg_text and interp,
+    or (None, error_message) on failure.
+    """
+    jd_ut, tz_name, lat, lng = _compute_jd_from_local_using_place(dob_date, tob_time, place_str)
+    if jd_ut is None:
+        return None, "Could not compute time/zone for the provided place."
+
+    sun_lon = _calc_planet_longitude(jd_ut, swe.SUN)
+    moon_lon = _calc_planet_longitude(jd_ut, swe.MOON)
+    asc_lon = _calc_ascendant(jd_ut, lat, lng)
+
+    if None in (sun_lon, moon_lon, asc_lon):
+        return None, "Error computing planetary positions; check swisseph installation."
+
+    sun_sign, sun_deg_in_sign, sun_deg_text = _deg_to_sign_text(sun_lon)
+    moon_sign, moon_deg_in_sign, moon_deg_text = _deg_to_sign_text(moon_lon)
+    asc_sign, asc_deg_in_sign, asc_deg_text = _deg_to_sign_text(asc_lon)
+
+    # one-line interpretations (templates)
+    sun_interp = f"Sun ({sun_sign} {sun_deg_text}) — core identity and vitality. {sun_sign} energy shows strongly in your persona."
+    moon_interp = f"Moon ({moon_sign} {moon_deg_text}) — emotions and inner life. {moon_sign} Moon colours your instincts and moods."
+    asc_interp = f"Lagna / Ascendant ({asc_sign} {asc_deg_text}) — outward style and first impressions. You present as {asc_sign} rising."
+
+    return {
+        "sun": {"sign": sun_sign, "deg_text": sun_deg_text, "interp": sun_interp},
+        "moon": {"sign": moon_sign, "deg_text": moon_deg_text, "interp": moon_interp},
+        "lagna": {"sign": asc_sign, "deg_text": asc_deg_text, "interp": asc_interp},
+        "tz_name": tz_name,
+        "lat": lat, "lng": lng
+    }, None
+
+# ---------- Moonshine · Lagna · Sunshine Summary (auto-show BEFORE chart generation) ----------
+try:
+    summary, err = build_moon_lagna_sun_summary_for_birth(
+        birth_data['dob'], birth_data['tob'], birth_data['place']
+    )
+    if err:
+        st.error(f"⚠️ {err}")
+    else:
+        st.markdown("### Moonshine · Lagna · Sunshine Summary")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric(label="🌞 Sunshine (Sun)", value=f"{summary['sun']['sign']} {summary['sun']['deg_text']}")
+            st.write(summary['sun']['interp'])
+        with c2:
+            st.metric(label="🌙 Moonshine (Moon)", value=f"{summary['moon']['sign']} {summary['moon']['deg_text']}")
+            st.write(summary['moon']['interp'])
+        with c3:
+            st.metric(label="🜁 Lagna (Ascendant)", value=f"{summary['lagna']['sign']} {summary['lagna']['deg_text']}")
+            st.write(summary['lagna']['interp'])
+        # show resolved tz if available
+        if summary.get('tz_name'):
+            st.caption(f"Timezone used for calculation: {summary['tz_name']} (lat: {summary['lat']:.3f}, lng: {summary['lng']:.3f})")
+except Exception as e:
+    st.error(f"⚠️ Error generating summary: {e}")
+# -------------------------------------------------------------------------------------
+
 # ---------- Calculate Chart ----------
 if "chart_result" not in st.session_state or submitted:
     with st.spinner("⭐ Calculating comprehensive KP chart..."):
