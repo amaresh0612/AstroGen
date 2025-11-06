@@ -1,4 +1,3 @@
-# app.py (updated) -- uses Pillow fallback for chart rendering (no pycairo/renderPM)
 import streamlit as st
 import os, uuid, io
 from openai import OpenAI
@@ -15,33 +14,151 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 
-# keep the reportlab graphics imports (vector drawing) if you want to keep the vector drawing function
 from reportlab.graphics.shapes import Drawing, Rect, Line, String
-
-# Pillow imports (used for robust PNG rendering)
 from PIL import Image, ImageDraw, ImageFont
 
 # ---------- Setup ----------
 st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout="centered")
 
-# ---------- Theme-aware CSS (replace existing CSS blocks & header) ----------
+# ---------- Theme-aware CSS (single block) ----------
+THEME_CSS = r"""
+<style>
+:root{
+  /* Light-mode friendly defaults */
+  --bg: linear-gradient(180deg,#fbfcfe,#f3f6fb);
+  --page-bg-solid: #f6f7f9;
+  --card-bg: rgba(255,255,255,0.96);
+  --muted: #4b5563;
+  --text: #0b1220;
+  --accent: #ff8c00;
+  --input-bg: rgba(11,18,32,0.03);
+  --input-border: rgba(11,18,32,0.08);
+  --panel-shadow: 0 6px 18px rgba(11,18,32,0.06);
+  --line: rgba(11,18,32,0.12);
+}
 
-st.markdown("""
-    <style>
-        [data-testid="stChatMessageAvatar"] img { display: none !important; }
-        [data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
-            content: "🧘‍♂️"; font-size: 26px; display: flex;
-            align-items: center; justify-content: center;
-        }
-        [data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
-            content: "🙂"; font-size: 22px; display: flex;
-            align-items: center; justify-content: center;
-        }
-    </style>
-""", unsafe_allow_html=True)
+/* Dark-mode adjustments: purposely not pure black to preserve soft contrast */
+@media (prefers-color-scheme: dark) {
+  :root{
+    --bg: linear-gradient(180deg,#071026,#081426);
+    --page-bg-solid: #071026;
+    --card-bg: rgba(255,255,255,0.02);
+    --muted: #9aa7bd;
+    --text: #e6eef8;
+    --accent: #ffb64d;
+    --input-bg: rgba(255,255,255,0.02);
+    --input-border: rgba(255,255,255,0.04);
+    --panel-shadow: 0 6px 18px rgba(0,0,0,0.55);
+    --line: rgba(255,255,255,0.06);
+  }
+}
 
-st.markdown("<h3 style='text-align:center; color:white;'>🙏 Namaste! 🧘‍♂️ I am Yogi Baba - Your Astrologer</h3>", unsafe_allow_html=True)
+/* App root: keep a soft background instead of full black */
+[data-testid='stAppViewContainer'] > .main {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  padding-top: 12px;
+}
 
+/* Header/title (explicit styling so it remains visible) */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 6px;
+  background: transparent;
+  border-radius: 10px;
+  color: var(--text);
+}
+.app-header h1 {
+  margin: 0; font-size: 18px; font-weight:700; color: var(--accent);
+}
+.app-header p { margin: 0; color: var(--muted); font-size: 13px; }
+
+/* Chat avatar replacements kept but colors use variables */
+[data-testid="stChatMessageAvatar"] img { display: none !important; }
+[data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
+    content: "🧘‍♂️"; font-size: 26px; display: flex;
+    align-items: center; justify-content: center; color: var(--accent);
+}
+[data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
+    content: "🙂"; font-size: 22px; display: flex;
+    align-items: center; justify-content: center; color: var(--muted);
+}
+
+/* Card / panel styling */
+.card {
+    background: var(--card-bg) !important;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: var(--panel-shadow);
+    border: 1px solid var(--input-border);
+    margin-bottom: 18px;
+    color: var(--text);
+}
+.card h2 { margin: 0 0 6px 0; font-size: 20px; color: var(--accent); }
+.card .muted { color: var(--muted); margin-bottom: 12px; font-size: 13px; }
+
+/* Inputs and selects */
+.stTextInput>div>div>input, .stTextInput>div>div>textarea,
+.stSelectbox>div>div>div>div, .stMultiSelect>div>div>div>div {
+    background: var(--input-bg) !important;
+    border-radius: 8px !important;
+    padding: 12px 12px !important;
+    border: 1px solid var(--input-border) !important;
+    color: var(--text) !important;
+    font-size: 15px !important;
+}
+
+/* Buttons */
+div.stButton > button:first-child {
+    background-color: var(--accent) !important;
+    color: white !important;
+    padding: 10px 18px !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    border: none !important;
+}
+div.stButton > button:first-child:hover { transform: translateY(-1px); }
+
+/* Table / small text */
+.stTable td, .stTable th, .stCheckbox, .stMarkdown {
+    color: var(--text) !important;
+}
+
+/* Footer / caption */
+footer, .stCaption, .stText {
+    color: var(--muted) !important;
+}
+
+/* Chart image */
+img { max-width: 100% !important; height: auto !important; }
+
+/* subtle dividers */
+hr, .css-1v3fvcr { border-color: var(--line) !important; }
+
+/* small text tweaks */
+.canvas-legend, .chart-note { color: var(--muted) !important; }
+</style>
+"""
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+# ---------- Restored header (visible in both themes) ----------
+st.markdown(
+    """
+    <div class="app-header">
+      <h1>🙏 Namaste! 🧘‍♂️ I am Yogi Baba - Your Astrologer</h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ensure submitted always exists
+submitted = False
+
+# ---------- Secrets / client ----------
 api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
 if not api_key:
     st.error("🚨 Missing API key")
@@ -58,6 +175,8 @@ if "birth_details" not in st.session_state:
 # ---------- KP Calculation Functions ----------
 def get_coordinates(place):
     try:
+        if not place:
+            return None, None
         if ',' not in place:
             place = f"{place}, India"
         geolocator = Nominatim(user_agent="astrologyapp")
@@ -83,7 +202,7 @@ def get_timezone_offset(lat, lng, dt):
 def get_sign_name(degree):
     signs = ['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
              'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces']
-    sign_num = int(degree / 30)
+    sign_num = int(degree / 30) % 12
     degree_in_sign = degree % 30
     return signs[sign_num], degree_in_sign
 
@@ -153,10 +272,6 @@ def get_current_dasha(dashas, current_date):
     return None, None
 
 def get_house_number_from_degree(degree, house_cusps):
-    """
-    Determine house number (1..12) for a planet at `degree` (0..360),
-    given `house_cusps` list of 12 cusp degrees.
-    """
     d = degree % 360
     cusps = [c % 360 for c in house_cusps]
     for i in range(12):
@@ -166,7 +281,6 @@ def get_house_number_from_degree(degree, house_cusps):
             if current <= d < nxt:
                 return i + 1
         else:
-            # wrap case
             if d >= current or d < nxt:
                 return i + 1
     return 1
@@ -182,15 +296,13 @@ def _planet_abbr(name: str) -> str:
 # -----------------------------
 # Sample data (adjust as needed)
 # -----------------------------
-# sample house cusps in degrees (12 values). You can replace with your real cusps.
 sample_house_cusps = [
     15.0, 45.0, 75.0, 105.0, 135.0, 165.0,
     195.0, 225.0, 255.0, 285.0, 315.0, 345.0
 ]
 
-# sample planet positions (full_degree 0..360)
 sample_planets = {
-    "Sun": 14.2,     # near house 1 cusp example
+    "Sun": 14.2,
     "Moon": 182.5,
     "Mars": 300.0,
     "Mercury": 46.3,
@@ -201,9 +313,6 @@ sample_planets = {
     "Ketu": 15.0
 }
 
-# -----------------------------
-# Print assignments (verification)
-# -----------------------------
 print("Planet -> degree -> house assignment")
 for pname, pdata in sample_planets.items():
     h = get_house_number_from_degree(pdata, sample_house_cusps)
@@ -212,7 +321,6 @@ for pname, pdata in sample_planets.items():
 print("\nHouse cusps (for reference):")
 for i, c in enumerate(sample_house_cusps, start=1):
     print(f"House {i:2}: {c:.6f}°")
-
 
 
 def calculate_comprehensive_chart(dob, tob, place):
@@ -307,14 +415,6 @@ def calculate_comprehensive_chart(dob, tob, place):
     except Exception as e:
         return None, f"Error: {str(e)}"
 
-# ---------- East-Indian Chart Helpers ----------
-def _planet_abbr(name: str) -> str:
-    mapping = {
-        'Sun': 'SUN', 'Moon': 'MOO', 'Mars': 'MAR', 'Mercury': 'MER',
-        'Jupiter': 'JUP', 'Venus': 'VEN', 'Saturn': 'SAT',
-        'Rahu': 'RAH', 'Ketu': 'KET'
-    }
-    return mapping.get(name, name[:3].upper())
 
 def create_east_indian_chart_drawing(planet_data, house_cusps_degrees):
     """
@@ -372,20 +472,11 @@ def create_east_indian_chart_drawing(planet_data, house_cusps_degrees):
                          textAnchor=anchor, fontName="Helvetica-Bold"))
     return d
 
-# ---------- Pillow renderer (robust fallback) ----------
+
 def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_path=None,
                               show_degrees=True, show_signs=False, save_file=False):
     """
     Render East-Indian chart as PNG bytes.
-
-    - planet_data: dict of planet -> { ..., 'full_degree': float, 'sign': str, 'degree': 'xx.xx°', ... }
-    - house_cusps_degrees: list of 12 cusp degrees (0..360)
-    - size: image size in pixels (square)
-    - out_path: optional file path to save PNG
-    - show_degrees: if True, show planet degree (like "14.23°") next to the planet label
-    - show_signs: if True, show sign short name after label (e.g. "SUN (Aries)")
-    - save_file: if True and out_path provided, save file to out_path (also returns bytes)
-    Returns: PNG bytes
     """
     from PIL import Image, ImageDraw, ImageFont
     import io
@@ -422,7 +513,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
     draw.line([(x0, y0), (x1, y1)], fill=line_color, width=max(1, int(size * 0.003)))
     draw.line([(x3, y0), (x2, y1)], fill=line_color, width=max(1, int(size * 0.003)))
 
-    # positions for planet text inside house squares (tweaked for visual balance)
     positions = {
         1:  (ox + 1.50 * cell, oy + 2.68 * cell, 'center'),
         2:  (ox + 2.73 * cell, oy + 2.18 * cell, 'right'),
@@ -469,7 +559,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
     # -----------------------
     # Draw only house #1 (bottom center). Remove other house numbers.
     # -----------------------
-    # compute house 1 position (use same anchor as positions[1])
     try:
         h1_x, h1_y, _ = positions.get(1, (ox + 1.5*cell, oy + 2.68*cell, 'center'))
     except Exception:
@@ -482,7 +571,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
     except AttributeError:
         hw, hh = draw.textsize(label, font=font_house)
 
-    # clamp inside inner square
     margin = max(6, int(size * 0.01))
     min_x = ox + margin
     max_x = ox + inner - margin - hw
@@ -491,7 +579,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
     tx = max(min_x, min(h1_x - hw / 2, max_x))
     ty = max(min_y, min(h1_y - hh / 2, max_y))
 
-    # draw subtle background for readability and then the number
     try:
         draw.rectangle([tx - 4, ty - 2, tx + hw + 4, ty + hh + 2], fill=bg)
     except Exception:
@@ -505,7 +592,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
             continue
         x, y, anchor = positions.get(h, (ox + 1.5*cell, oy + 1.5*cell, 'center'))
         labels = [lab for (_, lab) in items]
-        # compute total height to vertically center the stack
         line_heights = []
         for lab in labels:
             try:
@@ -530,7 +616,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
             else:
                 txp = x - (w / 2.0)
             draw.text((txp, cur_y), lab, fill=planet_color, font=font_planet)
-            # small bullet to the left of label
             try:
                 circle_r = max(3, int(size * 0.006))
                 draw.ellipse((txp - circle_r*2 - 2, cur_y + hgt/2 - circle_r, txp - 2, cur_y + hgt/2 + circle_r),
@@ -563,7 +648,6 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, out_p
     return png_bytes
 
 
-# ---------- PDF Generation ----------
 def generate_pdf_report(birth_data, chart_data):
     """Generate a professional PDF report (embed Pillow-generated PNG)"""
     buffer = io.BytesIO()
@@ -688,64 +772,6 @@ def generate_pdf_report(birth_data, chart_data):
     return buffer
 
 # ---------- Birth Details Form ----------
-# (Use your polished form code; unchanged except chart rendering usage below)
-st.markdown(
-    """
-    <style>
-    /* Card */
-    .card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.02));
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-        border: 1px solid rgba(255,255,255,0.04);
-        margin-bottom: 18px;
-    }
-    .card h2 {
-        margin: 0 0 6px 0;
-        font-size: 20px;
-        color: #ffb74d;
-    }
-    .card .muted {
-        color: #bdbdbd;
-        margin-bottom: 18px;
-        font-size: 13px;
-    }
-    .stTextInput>div>div>input, .stTextInput>div>div>textarea {
-        background: rgba(255,255,255,0.02) !important;
-        border-radius: 8px !important;
-        padding: 14px 12px !important;
-        border: 1px solid rgba(255,255,255,0.06) !important;
-        color: #e6e6e6 !important;
-        font-size: 15px !important;
-    }
-    .stSelectbox>div>div>div>div, .stMultiSelect>div>div>div>div {
-        border-radius: 8px !important;
-        padding: 8px 10px !important;
-        background: rgba(255,255,255,0.02) !important;
-        border: 1px solid rgba(255,255,255,0.06) !important;
-        color: #e6e6e6;
-        font-size: 15px;
-    }
-    .stRadio .css-1r6slb0 { gap: 12px; }
-    div.stButton > button:first-child {
-        background-color: #ff8c00;
-        color: white;
-        padding: 12px 20px;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: 15px;
-        border: none;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #ff9f33;
-        transform: translateY(-1px);
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
 st.markdown('<div class="card"><h2>Enter your birth details</h2><div class="muted">Provide accurate date, time and place for best results</div></div>', unsafe_allow_html=True)
 
 with st.form("birth_form", clear_on_submit=False):
@@ -760,7 +786,6 @@ with st.form("birth_form", clear_on_submit=False):
         tcols = st.columns([1.1, 1.1, 1.2], gap="small")
         hour_12 = tcols[0].text_input("Hour (1-12)", value="", max_chars=2, placeholder="HH")
         minute = tcols[1].text_input("Minute (0-59)", value="", max_chars=2, placeholder="MM")
-        # label_visibility collapsed to avoid accessibility warning while still providing a label in code
         am_pm = tcols[2].radio("Meridian", ["AM", "PM"], horizontal=True, label_visibility="collapsed")
         st.write("")  # spacer
 
@@ -774,6 +799,7 @@ with st.form("birth_form", clear_on_submit=False):
         except Exception:
             return None
 
+    # form submit button sets submitted
     submitted = st.form_submit_button("Generate Complete KP Chart ✨")
 
     if submitted:
@@ -805,7 +831,7 @@ with st.form("birth_form", clear_on_submit=False):
 
 # Additional validation block (keeps your prior checks)
 if submitted:
-    if dob is None or not hour_12.strip() or not minute.strip() or not place.strip():
+    if ('dob' not in locals() and 'dob' not in globals()) or not hour_12.strip() or not minute.strip() or not place.strip():
         st.error("⚠️ Please fill all fields")
         st.stop()
     try:
@@ -846,7 +872,7 @@ with st.expander("📋 View Birth Details"):
 """
     )
 
-# ---------- Moonshine · Lagna · Sunshine Summary (insert BEFORE chart generation) ----------
+# ---------- Moonshine · Lagna · Sunshine Summary ----------
 def _deg_to_sign_text(deg):
     """Return (sign_name, deg_in_sign_float, deg_text). deg in 0..360"""
     signs = ['Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo',
@@ -864,20 +890,17 @@ def _deg_to_sign_text(deg):
 
 def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     """
-    Build a UTC datetime using geocoded timezone (via your helpers) then return swe.julday(UT).
+    Build a UTC datetime using geocoded timezone then return swe.julday(UT).
     Returns (jd_ut, tz_name, lat, lng) or (None, None, None, None) on failure.
     """
     try:
         lat, lng = get_coordinates(place_str)
         if lat is None or lng is None:
             return None, None, None, None
-        # combine naive local date+time
         local_dt = datetime.combine(dob_date, tob_time)
-        # get tz name via timezonefinder
         tf = TimezoneFinder()
         tz_name = tf.timezone_at(lat=lat, lng=lng)
         if not tz_name:
-            # fallback: use UTC offset helper
             offset_hours = get_timezone_offset(lat, lng, local_dt)
             utc_dt = local_dt - timedelta(hours=offset_hours)
         else:
@@ -896,7 +919,6 @@ def _calc_planet_longitude(jd_ut, planet_const):
     """Return ecliptic longitude (0..360) for given planet constant."""
     try:
         res = swe.calc_ut(jd_ut, planet_const, swe.FLG_SIDEREAL)
-        # common shapes: ([lon, lat, dist], flag) or [lon,lat,dist]
         if isinstance(res, (list, tuple)):
             if isinstance(res[0], (list, tuple)):
                 lon = res[0][0]
@@ -918,10 +940,6 @@ def _calc_ascendant(jd_ut, lat, lng):
         return None
 
 def build_moon_lagna_sun_summary_for_birth(dob_date, tob_time, place_str):
-    """
-    Returns dict with 'sun', 'moon', 'lagna' each containing sign, deg_text and interp,
-    or (None, error_message) on failure.
-    """
     jd_ut, tz_name, lat, lng = _compute_jd_from_local_using_place(dob_date, tob_time, place_str)
     if jd_ut is None:
         return None, "Could not compute time/zone for the provided place."
@@ -937,7 +955,6 @@ def build_moon_lagna_sun_summary_for_birth(dob_date, tob_time, place_str):
     moon_sign, moon_deg_in_sign, moon_deg_text = _deg_to_sign_text(moon_lon)
     asc_sign, asc_deg_in_sign, asc_deg_text = _deg_to_sign_text(asc_lon)
 
-    # one-line interpretations (templates)
     sun_interp = f"Sun ({sun_sign} {sun_deg_text}) — core identity and vitality. {sun_sign} energy shows strongly in your persona."
     moon_interp = f"Moon ({moon_sign} {moon_deg_text}) — emotions and inner life. {moon_sign} Moon colours your instincts and moods."
     asc_interp = f"Lagna / Ascendant ({asc_sign} {asc_deg_text}) — outward style and first impressions. You present as {asc_sign} rising."
@@ -969,12 +986,10 @@ try:
         with c3:
             st.metric(label="🜁 Lagna (Ascendant)", value=f"{summary['lagna']['sign']} {summary['lagna']['deg_text']}")
             st.write(summary['lagna']['interp'])
-        # show resolved tz if available
         if summary.get('tz_name'):
             st.caption(f"Timezone used for calculation: {summary['tz_name']} (lat: {summary['lat']:.3f}, lng: {summary['lng']:.3f})")
 except Exception as e:
     st.error(f"⚠️ Error generating summary: {e}")
-# -------------------------------------------------------------------------------------
 
 # ---------- Calculate Chart ----------
 if "chart_result" not in st.session_state or submitted:
@@ -994,10 +1009,8 @@ chart = st.session_state["chart_result"]
 st.markdown("### 🌙 Your Complete KP Chart")
 with st.container():
     st.markdown("#### East Indian Chart")
-    # Use Pillow-based PNG (robust on cloud)
     try:
         png = render_chart_png_bytes_pil(chart['planets'], chart['house_cusps_degrees'], size=900)
-        # use width='stretch' to match use_container_width=True behavior
         st.image(png, width='stretch')
     except Exception as e:
         st.info("Image renderer not available; showing text layout.")
@@ -1058,8 +1071,7 @@ with col2:
             label="📥 Download PDF",
             data=pdf_buffer.getvalue(),
             file_name=f"KP_Chart_{birth_data['dob']}_{st.session_state['user_id']}.pdf",
-            mime="application/pdf",
-            width='stretch'  # replaced use_container_width=True
+            mime="application/pdf"
         )
     except Exception as e:
         st.error(f"⚠️ PDF generation error: {e}")
@@ -1067,8 +1079,8 @@ with col2:
 # ---------- AI Agent Prompts ----------
 AGENTS = {
     "overall": """You are an expert KP (Krishnamurti Paddhati) astrologer with deep knowledge of Vedic astrology.
-...
-"""  # keep your original AGENTS content here
+...""",
+    # keep any other agent content as needed
 }
 
 def get_ai_reading(agent_type):
@@ -1124,13 +1136,13 @@ st.markdown("---")
 st.markdown("### 🔮 AI Astrological Readings")
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button("🌟 Overall Life", width='stretch'):
+    if st.button("🌟 Overall Life"):
         st.session_state["overall_result"] = get_ai_reading("overall")
 with col2:
-    if st.button("💼 Career", width='stretch'):
+    if st.button("💼 Career"):
         st.session_state["career_result"] = get_ai_reading("career")
 with col3:
-    if st.button("💖 Relationship", width='stretch'):
+    if st.button("💖 Relationship"):
         st.session_state["relationship_result"] = get_ai_reading("relationship")
 
 if "overall_result" in st.session_state:
