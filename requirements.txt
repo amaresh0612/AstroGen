@@ -6,4 +6,3 @@ geopy
 reportlab
 pillow
 timezonefinder==6.2.0
-rlPyCairo==0.4.0
