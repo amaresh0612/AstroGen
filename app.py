@@ -172,12 +172,12 @@ if "birth_details" not in st.session_state:
 # ========== CRITICAL FIX: Use KP Ayanamsa (not Lahiri) ==========
 try:
     # KP uses its own ayanamsa calculation
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
 except Exception:
     pass
 
 # ---------- Config ----------
-#CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
+CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
 SIGNS = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces']
 SIGN_RULERS = {
     'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury', 'Cancer': 'Moon',
@@ -314,7 +314,7 @@ def _calc_ascendant(jd_ut, lat, lng):
     """
     try:
         # Use FIXED Chitrapaksha ayanamsa instead of swisseph's calculation
-        #ay = CHITRAPAKSHA_AYANAMSA_DEG  # 24.0166666667°
+        ay = CHITRAPAKSHA_AYANAMSA_DEG  # 24.0166666667°
         
         # Calculate tropical houses using Placidus
         cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')  # Placidus
@@ -322,16 +322,9 @@ def _calc_ascendant(jd_ut, lat, lng):
         cusps_trop = [float(c) % 360.0 for c in cusps_trop[:12]]
         
         # Convert to sidereal using fixed ayanamsa
-        #asc_sid = (asc_trop - ay) % 360.0
-        #cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
-        #asc_sid = ascmc_sid[0]
-        #cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
-        swe.set_sid_mode(swe.SIDM_LAHIRI)  # Already present, keep it
-        #cusps_sid, ascmc_sid = swe.houses_ex(jd_ut, lat, lng, b'P', swe.FLG_SIDEREAL)
-        #asc_sid = float(ascmc_sid[
-        cusps_sid, ascmc_sid = swe.houses_ex(jd_ut, lat, lng, b'P', 0, swe.FLG_SIDEREAL)
-        asc_sid = float(ascmc_sid[0]) % 360
-        ay = swe.get_ayanamsa(jd_ut)
+        asc_sid = (asc_trop - ay) % 360.0
+        cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
+        
         return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
     except Exception as e:
         print(f"ERROR in _calc_ascendant: {e}")
