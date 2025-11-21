@@ -327,8 +327,10 @@ def _calc_ascendant(jd_ut, lat, lng):
         #asc_sid = ascmc_sid[0]
         #cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
         swe.set_sid_mode(swe.SIDM_LAHIRI)  # Already present, keep it
-        cusps_sid, ascmc_sid = swe.houses_ex(jd_ut, lat, lng, b'P', swe.FLG_SIDEREAL)  # ← FIX
-        asc_sid = float(ascmc_sid[0]) % 360                                        # ← FIX
+        #cusps_sid, ascmc_sid = swe.houses_ex(jd_ut, lat, lng, b'P', swe.FLG_SIDEREAL)
+        #asc_sid = float(ascmc_sid[
+        cusps_sid, ascmc_sid = swe.houses_ex(jd_ut, lat, lng, b'P', 0, swe.FLG_SIDEREAL)
+        asc_sid = float(ascmc_sid[0]) % 360
 
         return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
     except Exception as e:
