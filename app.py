@@ -331,7 +331,7 @@ def _calc_ascendant(jd_ut, lat, lng):
         #asc_sid = float(ascmc_sid[
         cusps_sid, ascmc_sid = swe.houses_ex(jd_ut, lat, lng, b'P', 0, swe.FLG_SIDEREAL)
         asc_sid = float(ascmc_sid[0]) % 360
-
+        ay = swe.get_ayanamsa(jd_ut)
         return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
     except Exception as e:
         print(f"ERROR in _calc_ascendant: {e}")
