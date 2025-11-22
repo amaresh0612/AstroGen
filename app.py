@@ -306,32 +306,6 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
     except Exception:
         return None
 
-"""
-def _calc_ascendant(jd_ut, lat, lng):
-    """
-    Calculate both tropical and sidereal ascendant/cusps.
-    Uses Chitrapaksha ayanamsa (24°01'00") to match reference documents.
-    Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa)
-    """
-    try:
-        # Use FIXED Chitrapaksha ayanamsa instead of swisseph's calculation
-        ay = CHITRAPAKSHA_AYANAMSA_DEG
-        
-        # Calculate tropical houses using Placidus
-        cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')  # Placidus
-        asc_trop = float(ascmc_trop[0]) % 360.0
-        cusps_trop = [float(c) % 360.0 for c in cusps_trop[:12]]
-        
-        # Convert to sidereal using fixed ayanamsa
-        asc_sid = (asc_trop - ay) % 360.0
-        cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
-        
-        return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
-    except Exception as e:
-        print(f"ERROR in _calc_ascendant: {e}")
-        return None, None, None, None, None
-
-"""
 def _calc_ascendant(jd_ut, lat, lng):
     # Houses directly in sidereal mode (with Lahiri ayanamsa set globally)
     cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
