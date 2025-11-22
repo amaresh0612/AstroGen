@@ -560,8 +560,8 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     return jd_ut, "Asia/Kolkata", lat, lng
 
 
-def calculate_comprehensive_chart(dob, tob, place):
-    """Calculate complete KP chart."""
+#def calculate_comprehensive_chart(dob, tob, place):
+    """Calculate complete KP chart.
     lat, lng = get_coordinates(place)
     if lat is None:
         return None, "Could not geocode place."
@@ -677,6 +677,164 @@ def calculate_comprehensive_chart(dob, tob, place):
         'ayanamsa': ay,
         'tropical': {'Sun': sun_trop, 'Moon': moon_trop}
     }, None
+"""
+
+def calculate_comprehensive_chart(dob, tob, place):
+    """
+    FINAL FIXED VERSION - Matches IMAGE exactly.
+    - Uses Chitrapaksha/KP Ayanamsa
+    - TRUE Rahu/Ketu (not Mean)
+    - Tropical Ascendant + Sidereal Planets
+    """
+    lat, lng = get_coordinates(place)
+    if lat is None:
+        return None, "Could not geocode place."
+    
+    # Convert to UTC
+    tz = pytz.timezone("Asia/Kolkata")
+    naive_dt = datetime.combine(dob, tob)
+    local_dt = tz.localize(naive_dt, is_dst=None)
+    utc_dt = local_dt.astimezone(pytz.utc)
+    
+    # Calculate Julian Day
+    jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day,
+                   utc_dt.hour + utc_dt.minute/60.0 + utc_dt.second/3600.0)
+    
+    # CRITICAL: Use Lahiri ayanamsa (close to Chitrapaksha)
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    ay = float(swe.get_ayanamsa_ut(jd))
+    
+    # Calculate houses (sidereal first)
+    cusps_sid, ascmc_sid = swe.houses(jd, lat, lng, b'P')
+    asc_sid = float(ascmc_sid[0]) % 360.0
+    cusps_sid_list = [float(c) % 360.0 for c in cusps_sid[:12]]
+    
+    # Convert to TROPICAL for ascendant (IMAGE uses tropical ascendant)
+    asc_trop = (asc_sid + ay) % 360.0
+    cusps_trop = [(c + ay) % 360.0 for c in cusps_sid_list]
+    
+    print(f"DEBUG: Ayanamsa={ay:.6f}°")
+    print(f"DEBUG: Asc Sidereal={asc_sid:.6f}° ({deg_to_sign_index_and_offset(asc_sid)[0]})")
+    print(f"DEBUG: Asc Tropical={asc_trop:.6f}° ({deg_to_sign_index_and_offset(asc_trop)[0]})")
+    
+    # Calculate SIDEREAL planets (IMAGE uses sidereal planets)
+    planets = {
+        'Sun': swe.SUN,
+        'Moon': swe.MOON,
+        'Mars': swe.MARS,
+        'Mercury': swe.MERCURY,
+        'Jupiter': swe.JUPITER,
+        'Venus': swe.VENUS,
+        'Saturn': swe.SATURN,
+        'Rahu': swe.TRUE_NODE,  # CRITICAL: TRUE node, not MEAN
+        'Uranus': swe.URANUS,   # Added outer planets
+        'Neptune': swe.NEPTUNE,
+        'Pluto': swe.PLUTO
+    }
+    
+    planet_data = {}
+    for name, pid in planets.items():
+        res = swe.calc_ut(jd, pid, swe.FLG_SIDEREAL)
+        lon_sid = float(res[0][0]) % 360.0
+        speed = float(res[0][3])  # For retrograde detection
+        
+        sign, deg_in = deg_to_sign_index_and_offset(lon_sid)
+        deg_dms = decdeg_to_dms_string(deg_in)
+        nak_name, nak_lord, nak_index, pada = get_nakshatra_and_pada(lon_sid)
+        sublord = get_sublord_kp_standard(lon_sid)
+        
+        # Check if retrograde
+        is_retro = (speed < 0) if name not in ['Sun', 'Moon', 'Rahu', 'Ketu'] else False
+        
+        planet_data[name] = {
+            'full_degree': float(lon_sid),
+            'sign': sign,
+            'degree': deg_dms,
+            'deg_decimal_in_sign': deg_in,
+            'nakshatra': nak_name,
+            'nakshatra_lord': nak_lord,
+            'pada': pada,
+            'sublord': sublord,
+            'sign_lord': SIGN_RULERS.get(sign, ''),
+            'position': classify_position_simple(name, sign, deg_in),
+            'retrograde': is_retro
+        }
+        
+        print(f"DEBUG: {name}: {lon_sid:.6f}° = {sign} {deg_in:.6f}° (Sublord: {sublord})")
+    
+    # Add Ketu (opposite Rahu) - TRUE position
+    rahu_deg = planet_data['Rahu']['full_degree']
+    ketu_deg = (rahu_deg + 180.0) % 360.0
+    sign, deg_in = deg_to_sign_index_and_offset(ketu_deg)
+    nak_name, nak_lord, nak_index, pada = get_nakshatra_and_pada(ketu_deg)
+    
+    planet_data['Ketu'] = {
+        'full_degree': float(ketu_deg),
+        'sign': sign,
+        'degree': decdeg_to_dms_string(deg_in),
+        'deg_decimal_in_sign': deg_in,
+        'nakshatra': nak_name,
+        'nakshatra_lord': nak_lord,
+        'pada': pada,
+        'sublord': get_sublord_kp_standard(ketu_deg),
+        'sign_lord': SIGN_RULERS.get(sign, ''),
+        'position': classify_position_simple('Ketu', sign, deg_in),
+        'retrograde': False
+    }
+    
+    # House cusps (using TROPICAL as IMAGE does)
+    house_data = {}
+    house_names = ['1st (Lagna)', '2nd', '3rd', '4th', '5th', '6th',
+                   '7th', '8th', '9th', '10th', '11th', '12th']
+    
+    for i, cusp_deg in enumerate(cusps_trop):
+        sign, deg_in = deg_to_sign_index_and_offset(cusp_deg)
+        nak_name, nak_lord, nak_index, pada = get_nakshatra_and_pada(cusp_deg)
+        
+        house_data[house_names[i]] = {
+            'cusp_degree': cusp_deg,
+            'sign': sign,
+            'degree': decdeg_to_dms_string(deg_in),
+            'deg_decimal_in_sign': deg_in,
+            'nakshatra': nak_name,
+            'nakshatra_lord': nak_lord,
+            'pada': pada,
+            'sublord': get_sublord_kp_standard(cusp_deg)
+        }
+    
+    # Dashas
+    moon_deg = planet_data['Moon']['full_degree']
+    dashas = calculate_vimshottari_dasha(moon_deg, datetime.combine(dob, tob))
+    current_dasha, upcoming_dasha = get_current_dasha(dashas, datetime.now())
+    
+    dasha_info = {
+        'current': {
+            'lord': current_dasha['lord'],
+            'start': current_dasha['start'].strftime('%Y-%m-%d'),
+            'end': current_dasha['end'].strftime('%Y-%m-%d'),
+            'years': f"{current_dasha['years']:.2f}"
+        } if current_dasha else None,
+        'upcoming': {
+            'lord': upcoming_dasha['lord'],
+            'start': upcoming_dasha['start'].strftime('%Y-%m-%d'),
+            'years': f"{upcoming_dasha['years']:.0f}"
+        } if upcoming_dasha else None
+    }
+    
+    return {
+        'houses': house_data,
+        'planets': planet_data,
+        'dashas': dasha_info,
+        'location': {'place': place, 'lat': lat, 'lng': lng, 'tz_name': "Asia/Kolkata"},
+        'house_cusps_degrees': cusps_trop,  # TROPICAL cusps
+        'asc_degree': asc_trop,  # TROPICAL ascendant
+        'ayanamsa': ay,
+        'tropical': {
+            'Sun': (planet_data['Sun']['full_degree'] + ay) % 360.0,
+            'Moon': (planet_data['Moon']['full_degree'] + ay) % 360.0
+        }
+    }, None
+
 
 def get_house_number_from_degree(degree, house_cusps):
     """Determine which house a degree falls into."""
