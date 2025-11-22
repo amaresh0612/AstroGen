@@ -172,7 +172,7 @@ if "birth_details" not in st.session_state:
 # ========== CRITICAL FIX: Use KP Ayanamsa (not Lahiri) ==========
 try:
     # KP uses its own ayanamsa calculation
-    swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
 except Exception:
     pass
 
@@ -306,6 +306,7 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
     except Exception:
         return None
 
+"""
 def _calc_ascendant(jd_ut, lat, lng):
     """
     Calculate both tropical and sidereal ascendant/cusps.
@@ -330,6 +331,13 @@ def _calc_ascendant(jd_ut, lat, lng):
         print(f"ERROR in _calc_ascendant: {e}")
         return None, None, None, None, None
 
+"""
+def _calc_ascendant(jd_ut, lat, lng):
+    # Houses directly in sidereal mode (with Lahiri ayanamsa set globally)
+    cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
+    asc_sid = float(ascmc_sid[0]) % 360.0
+    cusps_sid = [(float(c) % 360.0) for c in cusps_sid[:12]]
+    return asc_sid, cusps_sid
 
 import math
 
