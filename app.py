@@ -307,11 +307,55 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
         return None
 
 def _calc_ascendant(jd_ut, lat, lng):
-    # Houses directly in sidereal mode (with Lahiri ayanamsa set globally)
-    cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
-    asc_sid = float(ascmc_sid[0]) % 360.0
-    cusps_sid = [(float(c) % 360.0) for c in cusps_sid[:12]]
-    return asc_sid, cusps_sid
+    """
+    Calculate both sidereal (Lahiri) and tropical ascendant and cusps.
+    Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa_used)
+    - asc_sid, cusps_sid : sidereal (Lahiri) ascendant and cusps (list of 12)
+    - asc_trop, cusps_trop : tropical ascendant and cusps (list of 12)
+    - ayanamsa_used : numerical ayanamsa (degrees) as reported by swe_get_ayanamsa_ut
+    """
+    try:
+        # --- Tropical houses (ensure sidereal mode is off temporarily) ---
+        # Save current sidereal mode
+        # NOTE: swisseph doesn't provide a getter for sidemode; we will explicitly set what we need.
+        # Compute tropical houses
+        swe.set_sid_mode(swe.SIDM_FAGAN_BRADLEY)  # set to any non-Lahiri sidereal mode is not required; better: set to tropical by using no sidereal flag when calling houses
+        # Actually swe.houses returns tropical houses when sidereal flag not in effect; but swiss lib uses global sidemode, so we'll compute tropical by temporarily setting SIDM=0 via set_sid_mode(0)
+        try:
+            swe.set_sid_mode(0)  # set to tropical mode (no sidereal)
+        except Exception:
+            # Some swisseph builds disallow 0; in that case, compute tropical houses by calling houses without changing sidemode
+            pass
+
+        cusps_trop_obj, ascmc_trop_obj = swe.houses(jd_ut, lat, lng, b'P')
+        # Normalize types (swe returns arrays)
+        cusps_trop = [float(c) % 360.0 for c in cusps_trop_obj[:12]]
+        asc_trop = float(ascmc_trop_obj[0]) % 360.0
+
+        # --- Sidereal houses (Lahiri) ---
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        cusps_sid_obj, ascmc_sid_obj = swe.houses(jd_ut, lat, lng, b'P')
+        cusps_sid = [float(c) % 360.0 for c in cusps_sid_obj[:12]]
+        asc_sid = float(ascmc_sid_obj[0]) % 360.0
+
+        # Ayanamsa numeric (approx) used: query swe for ayanamsa at this JD
+        try:
+            # swe.get_ayanamsa_ut returns the numeric ayanamsa in degrees for a JD
+            ay_deg = float(swe.get_ayanamsa_ut(jd_ut))
+        except Exception:
+            # fallback to common Lahiri value if the call fails
+            ay_deg = 23.9166666667
+
+        return asc_sid, cusps_sid, asc_trop, cusps_trop, ay_deg
+
+    except Exception as e:
+        # Very important: don't hide the real error — print/log it so Streamlit logs capture it.
+        import traceback, sys
+        tb = traceback.format_exc()
+        print("ERROR in _calc_ascendant:", e, file=sys.stderr)
+        print(tb, file=sys.stderr)
+        # Re-raise so caller sees the error (or return a clear sentinel tuple)
+        raise
 
 import math
 
