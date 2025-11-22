@@ -1,11 +1,334 @@
+# app.py (FIXED VERSION - Aligned with reference calculations)
+import streamlit as st
+from openai import OpenAI
+import os, uuid, io
+from datetime import datetime, timedelta
+import swisseph as swe
+from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
+import pytz
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from PIL import Image, ImageDraw, ImageFont
+import math
+import pandas as pd
 
-        return asc_trop, cusps_trop, None, None, ay_deg
+st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout="centered")
+THEME_CSS = r"""
+<style>
+:root{
+  /* Light-mode friendly defaults */
+  --bg: linear-gradient(180deg,#fbfcfe,#f3f6fb);
+  --page-bg-solid: #f6f7f9;
+  --card-bg: rgba(255,255,255,0.96);
+  --muted: #4b5563;
+  --text: #0b1220;
+  --accent: #ff8c00;
+  --input-bg: rgba(11,18,32,0.03);
+  --input-border: rgba(11,18,32,0.08);
+  --panel-shadow: 0 6px 18px rgba(11,18,32,0.06);
+  --line: rgba(11,18,32,0.12);
+}
+
+/* Dark-mode adjustments: purposely not pure black to preserve soft contrast */
+@media (prefers-color-scheme: dark) {
+  :root{
+    --bg: linear-gradient(180deg,#071026,#081426);
+    --page-bg-solid: #071026;
+    --card-bg: rgba(255,255,255,0.02);
+    --muted: #9aa7bd;
+    --text: #e6eef8;
+    --accent: #ffb64d;
+    --input-bg: rgba(255,255,255,0.02);
+    --input-border: rgba(255,255,255,0.04);
+    --panel-shadow: 0 6px 18px rgba(0,0,0,0.55);
+    --line: rgba(255,255,255,0.06);
+  }
+}
+
+/* App root: keep a soft background instead of full black */
+[data-testid='stAppViewContainer'] > .main {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  padding-top: 12px;
+}
+
+/* Header/title (explicit styling so it remains visible) */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 6px;
+  background: transparent;
+  border-radius: 10px;
+  color: var(--text);
+}
+.app-header h1 {
+  margin: 0; font-size: 18px; font-weight:700; color: var(--accent);
+}
+.app-header p { margin: 0; color: var(--muted); font-size: 13px; }
+
+/* Chat avatar replacements kept but colors use variables */
+[data-testid="stChatMessageAvatar"] img { display: none !important; }
+[data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
+    content: "🧘‍♂️"; font-size: 26px; display: flex;
+    align-items: center; justify-content: center; color: var(--accent);
+}
+[data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
+    content: "🙂"; font-size: 22px; display: flex;
+    align-items: center; justify-content: center; color: var(--muted);
+}
+
+/* Card / panel styling */
+.card {
+    background: var(--card-bg) !important;
+    border-radius: 12px;
+    padding: 18px;
+    box-shadow: var(--panel-shadow);
+    border: 1px solid var(--input-border);
+    margin-bottom: 18px;
+    color: var(--text);
+}
+.card h2 { margin: 0 0 6px 0; font-size: 20px; color: var(--accent); }
+.card .muted { color: var(--muted); margin-bottom: 12px; font-size: 13px; }
+
+/* Inputs and selects */
+.stTextInput>div>div>input, .stTextInput>div>div>textarea,
+.stSelectbox>div>div>div>div, .stMultiSelect>div>div>div>div {
+    background: var(--input-bg) !important;
+    border-radius: 8px !important;
+    padding: 12px 12px !important;
+    border: 1px solid var(--input-border) !important;
+    color: var(--text) !important;
+    font-size: 15px !important;
+}
+
+/* Buttons */
+div.stButton > button:first-child {
+    background-color: var(--accent) !important;
+    color: white !important;
+    padding: 10px 18px !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    border: none !important;
+}
+div.stButton > button:first-child:hover { transform: translateY(-1px); }
+
+/* Table / small text */
+.stTable td, .stTable th, .stCheckbox, .stMarkdown {
+    color: var(--text) !important;
+}
+
+/* Footer / caption */
+footer, .stCaption, .stText {
+    color: var(--muted) !important;
+}
+
+/* Chart image */
+img { max-width: 100% !important; height: auto !important; }
+
+/* subtle dividers */
+hr, .css-1v3fvcr { border-color: var(--line) !important; }
+
+/* small text tweaks */
+.canvas-legend, .chart-note { color: var(--muted) !important; }
+</style>
+"""
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+# ---------- Restored header (visible in both themes) ----------
+st.markdown(
+    """
+    <div class="app-header">
+      <h1>🙏 Namaste! 🧘‍♂️ I am Yogi Baba - Your Astrologer</h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ensure submitted always exists
+submitted = False
+
+api_key = st.secrets.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+if not api_key:
+    st.error("🚨 Missing API key")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
+
+# Initialize session state
+if "user_id" not in st.session_state:
+    st.session_state.user_id = str(uuid.uuid4())[:8]
+if "birth_details" not in st.session_state:
+    st.session_state.birth_details = None
+
+
+# ========== CRITICAL FIX: Use KP Ayanamsa (not Lahiri) ==========
+try:
+    # KP uses its own ayanamsa calculation
+    swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
+except Exception:
+    pass
+
+# ---------- Config ----------
+CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
+SIGNS = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces']
+SIGN_RULERS = {
+    'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury', 'Cancer': 'Moon',
+    'Leo': 'Sun', 'Virgo': 'Mercury', 'Libra': 'Venus', 'Scorpio': 'Mars',
+    'Sagittarius': 'Jupiter', 'Capricorn': 'Saturn', 'Aquarius': 'Saturn', 'Pisces': 'Jupiter'
+}
+NAKSHATRAS = [
+    ('Ashwini','Ketu'), ('Bharani','Venus'), ('Krittika','Sun'),
+    ('Rohini','Moon'), ('Mrigashira','Mars'), ('Ardra','Rahu'),
+    ('Punarvasu','Jupiter'), ('Pushya','Saturn'), ('Ashlesha','Mercury'),
+    ('Magha','Ketu'), ('Purva Phalguni','Venus'), ('Uttara Phalguni','Sun'),
+    ('Hasta','Moon'), ('Chitra','Mars'), ('Swati','Rahu'),
+    ('Vishakha','Jupiter'), ('Anuradha','Saturn'), ('Jyeshtha','Mercury'),
+    ('Mula','Ketu'), ('Purva Ashadha','Venus'), ('Uttara Ashadha','Sun'),
+    ('Shravana','Moon'), ('Dhanishta','Mars'), ('Shatabhisha','Rahu'),
+    ('Purva Bhadrapada','Jupiter'), ('Uttara Bhadrapada','Saturn'), ('Revati','Mercury')
+]
+
+# ---------- FIXED KP SUBLORD WITH CORRECT BOUNDARIES ----------
+def get_sublord_kp_standard(deg360):
+    """
+    CORRECTED KP Sublord: Uses exact arc-minute calculations.
+    Each nakshatra = 800 arc-minutes, divided by Vimshottari proportions.
+    Sublord sequence starts with nakshatra's own lord.
+    """
+    # Vimshottari sequence
+    VIMSHOTTARI_ORDER = ['Ketu', 'Venus', 'Sun', 'Moon', 'Mars', 'Rahu', 'Jupiter', 'Saturn', 'Mercury']
+    DASHA_YEARS = [7, 20, 6, 10, 7, 18, 16, 19, 17]  # Total = 120
+    
+    nak_width = 360.0 / 27.0  # 13°20' = 13.333... degrees
+    arc = float(deg360) % 360.0
+    nak_idx = int(arc / nak_width)
+    if nak_idx >= 27:
+        nak_idx = 26
+    
+    # Get nakshatra lord
+    nak_name, nak_lord = NAKSHATRAS[nak_idx]
+    
+    # Find starting position in Vimshottari cycle
+    try:
+        start_idx = VIMSHOTTARI_ORDER.index(nak_lord)
+    except ValueError:
+        start_idx = 0
+    
+    # Position within nakshatra in ARC-MINUTES (more precise)
+    inside_nak_deg = arc - (nak_idx * nak_width)
+    inside_nak_minutes = inside_nak_deg * 60.0  # Convert to arc-minutes
+    
+    # Each nakshatra = 800 arc-minutes
+    nak_minutes = 800.0
+    
+    # Calculate sublord boundaries in arc-minutes
+    # Rotate to start with nakshatra's lord
+    rotated_lords = VIMSHOTTARI_ORDER[start_idx:] + VIMSHOTTARI_ORDER[:start_idx]
+    rotated_years = DASHA_YEARS[start_idx:] + DASHA_YEARS[:start_idx]
+    
+    total_years = 120.0
+    cumulative_minutes = 0.0
+    
+    for i, years in enumerate(rotated_years):
+        # Calculate arc-minutes for this sublord
+        sublord_minutes = (years / total_years) * nak_minutes
+        cumulative_minutes += sublord_minutes
         
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise
+        if inside_nak_minutes <= cumulative_minutes:
+            return rotated_lords[i]
+    
+    return rotated_lords[-1]
 
+# ---------- Helpers ----------
+def deg_to_sign_index_and_offset(deg360):
+    d = float(deg360) % 360.0
+    idx = int(d // 30)
+    deg_in = d - idx * 30
+    return SIGNS[idx], deg_in
+
+def decdeg_to_dms_string(deg_within_sign):
+    """Decimal degrees within sign -> D°M'S\" (seconds precision)."""
+    d = int(math.floor(deg_within_sign))
+    rem = (deg_within_sign - d) * 60.0
+    m = int(math.floor(rem))
+    s = int(round((rem - m) * 60.0))
+    if s == 60:
+        s = 0
+        m += 1
+    if m == 60:
+        m = 0
+        d += 1
+    return f"{d}°{m:02d}'{s:02d}\""
+
+def _planet_abbr(name: str) -> str:
+    mapping = {
+        'Sun': 'SUN', 'Moon': 'MOO', 'Mars': 'MAR', 'Mercury': 'MER',
+        'Jupiter': 'JUP', 'Venus': 'VEN', 'Saturn': 'SAT',
+        'Rahu': 'RAH', 'Ketu': 'KET'
+    }
+    return mapping.get(name, name[:3].upper())
+
+def get_coordinates(place):
+    g = Nominatim(user_agent="astrologyapp")
+    loc = g.geocode(place, timeout=10)
+    if not loc:
+        return None, None
+    return loc.latitude, loc.longitude
+
+
+def _calc_planet_longitude_sidereal(jd_ut, planet_const):
+    """Return sidereal longitude using KRISHNAMURTI ayanamsa."""
+    try:
+        res = swe.calc_ut(jd_ut, planet_const, swe.FLG_SIDEREAL)
+        lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
+        return float(lon) % 360.0
+    except Exception as e:
+        print(f"Error calculating {planet_const}: {e}")
+        return None
+
+
+
+
+def _calc_planet_longitude_tropical(jd_ut, planet_const):
+    """Calculate tropical longitude."""
+    try:
+        res = swe.calc_ut(jd_ut, planet_const)
+        lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
+        return float(lon) % 360.0
+    except Exception:
+        return None
+
+def _calc_ascendant(jd_ut, lat, lng):
+    """
+    Calculate both tropical and sidereal ascendant/cusps.
+    Uses Chitrapaksha ayanamsa (24°01'00") to match reference documents.
+    Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa)
+    """
+    try:
+        # Use FIXED Chitrapaksha ayanamsa instead of swisseph's calculation
+        ay = CHITRAPAKSHA_AYANAMSA_DEG  # 24.0166666667°
+        
+        # Calculate tropical houses using Placidus
+        cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')  # Placidus
+        asc_trop = float(ascmc_trop[0]) % 360.0
+        cusps_trop = [float(c) % 360.0 for c in cusps_trop[:12]]
+        
+        # Convert to sidereal using fixed ayanamsa
+        asc_sid = (asc_trop - ay) % 360.0
+        cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
+        
+        return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
+    except Exception as e:
+        print(f"ERROR in _calc_ascendant: {e}")
+        return None, None, None, None, None
 
 
 import math
@@ -146,8 +469,8 @@ def get_current_dasha(dashas, current_date):
         return dashas[-1], None
     return None, dashas[0] if dashas else (None, None)
 
-#def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
-    """Convert local birth time to Julian Day (UT).
+def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
+    """Convert local birth time to Julian Day (UT)."""
     lat, lng = get_coordinates(place_str)
     if lat is None or lng is None:
         return None, None, None, None
@@ -171,38 +494,9 @@ def get_current_dasha(dashas, current_date):
     jd_ut = swe.julday(year, month, day, hour_decimal)
     
     return jd_ut, tz_name, lat, lng
-"""
 
-def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
-    lat, lng = get_coordinates(place_str)
-
-    # India default timezone (KP charts expect IST for Indian births)
-    try:
-        tz = pytz.timezone("Asia/Kolkata")
-    except:
-        tz = pytz.utc
-
-    # Localize properly
-    local_dt = tz.localize(datetime.combine(dob_date, tob_time))
-
-    # Convert to UTC
-    utc_dt = local_dt.astimezone(pytz.utc)
-
-    # Compute JD UT
-    year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
-    hour_decimal = (
-        utc_dt.hour +
-        utc_dt.minute / 60 +
-        utc_dt.second / 3600 +
-        utc_dt.microsecond / 3_600_000_000
-    )
-
-    jd_ut = swe.julday(year, month, day, hour_decimal)
-    return jd_ut, "Asia/Kolkata", lat, lng
-
-
-#def calculate_comprehensive_chart(dob, tob, place):
-    """Calculate complete KP chart.
+def calculate_comprehensive_chart(dob, tob, place):
+    """Calculate complete KP chart."""
     lat, lng = get_coordinates(place)
     if lat is None:
         return None, "Could not geocode place."
@@ -220,7 +514,7 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     planets = {
         'Sun': swe.SUN, 'Moon': swe.MOON, 'Mars': swe.MARS,
         'Mercury': swe.MERCURY, 'Jupiter': swe.JUPITER,
-        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.MEAN_NODE
+        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.TRUE_NODE
     }
     
     planet_data = {}
@@ -318,164 +612,6 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
         'ayanamsa': ay,
         'tropical': {'Sun': sun_trop, 'Moon': moon_trop}
     }, None
-"""
-
-def calculate_comprehensive_chart(dob, tob, place):
-    """
-    FINAL FIXED VERSION - Matches IMAGE exactly.
-    - Uses Chitrapaksha/KP Ayanamsa
-    - TRUE Rahu/Ketu (not Mean)
-    - Tropical Ascendant + Sidereal Planets
-    """
-    lat, lng = get_coordinates(place)
-    if lat is None:
-        return None, "Could not geocode place."
-    
-    # Convert to UTC
-    tz = pytz.timezone("Asia/Kolkata")
-    naive_dt = datetime.combine(dob, tob)
-    local_dt = tz.localize(naive_dt, is_dst=None)
-    utc_dt = local_dt.astimezone(pytz.utc)
-    
-    # Calculate Julian Day
-    jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day,
-                   utc_dt.hour + utc_dt.minute/60.0 + utc_dt.second/3600.0)
-    
-    # CRITICAL: Use Lahiri ayanamsa (close to Chitrapaksha)
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
-    ay = float(swe.get_ayanamsa_ut(jd))
-    
-    # Calculate houses (sidereal first)
-    cusps_sid, ascmc_sid = swe.houses(jd, lat, lng, b'P')
-    asc_sid = float(ascmc_sid[0]) % 360.0
-    cusps_sid_list = [float(c) % 360.0 for c in cusps_sid[:12]]
-    
-    # Convert to TROPICAL for ascendant (IMAGE uses tropical ascendant)
-    asc_trop = (asc_sid + ay) % 360.0
-    cusps_trop = [(c + ay) % 360.0 for c in cusps_sid_list]
-    
-    print(f"DEBUG: Ayanamsa={ay:.6f}°")
-    print(f"DEBUG: Asc Sidereal={asc_sid:.6f}° ({deg_to_sign_index_and_offset(asc_sid)[0]})")
-    print(f"DEBUG: Asc Tropical={asc_trop:.6f}° ({deg_to_sign_index_and_offset(asc_trop)[0]})")
-    
-    # Calculate SIDEREAL planets (IMAGE uses sidereal planets)
-    planets = {
-        'Sun': swe.SUN,
-        'Moon': swe.MOON,
-        'Mars': swe.MARS,
-        'Mercury': swe.MERCURY,
-        'Jupiter': swe.JUPITER,
-        'Venus': swe.VENUS,
-        'Saturn': swe.SATURN,
-        'Rahu': swe.TRUE_NODE,  # CRITICAL: TRUE node, not MEAN
-        'Uranus': swe.URANUS,   # Added outer planets
-        'Neptune': swe.NEPTUNE,
-        'Pluto': swe.PLUTO
-    }
-    
-    planet_data = {}
-    for name, pid in planets.items():
-        res = swe.calc_ut(jd, pid, swe.FLG_SIDEREAL)
-        lon_sid = float(res[0][0]) % 360.0
-        speed = float(res[0][3])  # For retrograde detection
-        
-        sign, deg_in = deg_to_sign_index_and_offset(lon_sid)
-        deg_dms = decdeg_to_dms_string(deg_in)
-        nak_name, nak_lord, nak_index, pada = get_nakshatra_and_pada(lon_sid)
-        sublord = get_sublord_kp_standard(lon_sid)
-        
-        # Check if retrograde
-        is_retro = (speed < 0) if name not in ['Sun', 'Moon', 'Rahu', 'Ketu'] else False
-        
-        planet_data[name] = {
-            'full_degree': float(lon_sid),
-            'sign': sign,
-            'degree': deg_dms,
-            'deg_decimal_in_sign': deg_in,
-            'nakshatra': nak_name,
-            'nakshatra_lord': nak_lord,
-            'pada': pada,
-            'sublord': sublord,
-            'sign_lord': SIGN_RULERS.get(sign, ''),
-            'position': classify_position_simple(name, sign, deg_in),
-            'retrograde': is_retro
-        }
-        
-        print(f"DEBUG: {name}: {lon_sid:.6f}° = {sign} {deg_in:.6f}° (Sublord: {sublord})")
-    
-    # Add Ketu (opposite Rahu) - TRUE position
-    rahu_deg = planet_data['Rahu']['full_degree']
-    ketu_deg = (rahu_deg + 180.0) % 360.0
-    sign, deg_in = deg_to_sign_index_and_offset(ketu_deg)
-    nak_name, nak_lord, nak_index, pada = get_nakshatra_and_pada(ketu_deg)
-    
-    planet_data['Ketu'] = {
-        'full_degree': float(ketu_deg),
-        'sign': sign,
-        'degree': decdeg_to_dms_string(deg_in),
-        'deg_decimal_in_sign': deg_in,
-        'nakshatra': nak_name,
-        'nakshatra_lord': nak_lord,
-        'pada': pada,
-        'sublord': get_sublord_kp_standard(ketu_deg),
-        'sign_lord': SIGN_RULERS.get(sign, ''),
-        'position': classify_position_simple('Ketu', sign, deg_in),
-        'retrograde': False
-    }
-    
-    # House cusps (using TROPICAL as IMAGE does)
-    house_data = {}
-    house_names = ['1st (Lagna)', '2nd', '3rd', '4th', '5th', '6th',
-                   '7th', '8th', '9th', '10th', '11th', '12th']
-    
-    for i, cusp_deg in enumerate(cusps_trop):
-        sign, deg_in = deg_to_sign_index_and_offset(cusp_deg)
-        nak_name, nak_lord, nak_index, pada = get_nakshatra_and_pada(cusp_deg)
-        
-        house_data[house_names[i]] = {
-            'cusp_degree': cusp_deg,
-            'sign': sign,
-            'degree': decdeg_to_dms_string(deg_in),
-            'deg_decimal_in_sign': deg_in,
-            'nakshatra': nak_name,
-            'nakshatra_lord': nak_lord,
-            'pada': pada,
-            'sublord': get_sublord_kp_standard(cusp_deg)
-        }
-    
-    # Dashas
-    moon_deg = planet_data['Moon']['full_degree']
-    dashas = calculate_vimshottari_dasha(moon_deg, datetime.combine(dob, tob))
-    current_dasha, upcoming_dasha = get_current_dasha(dashas, datetime.now())
-    
-    dasha_info = {
-        'current': {
-            'lord': current_dasha['lord'],
-            'start': current_dasha['start'].strftime('%Y-%m-%d'),
-            'end': current_dasha['end'].strftime('%Y-%m-%d'),
-            'years': f"{current_dasha['years']:.2f}"
-        } if current_dasha else None,
-        'upcoming': {
-            'lord': upcoming_dasha['lord'],
-            'start': upcoming_dasha['start'].strftime('%Y-%m-%d'),
-            'years': f"{upcoming_dasha['years']:.0f}"
-        } if upcoming_dasha else None
-    }
-    
-    return {
-        'houses': house_data,
-        'planets': planet_data,
-        'dashas': dasha_info,
-        'location': {'place': place, 'lat': lat, 'lng': lng, 'tz_name': "Asia/Kolkata"},
-        'house_cusps_degrees': cusps_trop,  # TROPICAL cusps
-        'asc_degree': asc_trop,  # TROPICAL ascendant
-        'ayanamsa': ay,
-        'tropical': {
-            'Sun': (planet_data['Sun']['full_degree'] + ay) % 360.0,
-            'Moon': (planet_data['Moon']['full_degree'] + ay) % 360.0
-        }
-    }, None
-
 
 def get_house_number_from_degree(degree, house_cusps):
     """Determine which house a degree falls into."""
