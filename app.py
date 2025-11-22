@@ -545,8 +545,8 @@ def get_current_dasha(dashas, current_date):
         return dashas[-1], None
     return None, dashas[0] if dashas else (None, None)
 
-def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
-    """Convert local birth time to Julian Day (UT)."""
+#def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
+    """Convert local birth time to Julian Day (UT).
     lat, lng = get_coordinates(place_str)
     if lat is None or lng is None:
         return None, None, None, None
@@ -570,6 +570,35 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     jd_ut = swe.julday(year, month, day, hour_decimal)
     
     return jd_ut, tz_name, lat, lng
+"""
+
+def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
+    lat, lng = get_coordinates(place_str)
+
+    # India default timezone (KP charts expect IST for Indian births)
+    try:
+        tz = pytz.timezone("Asia/Kolkata")
+    except:
+        tz = pytz.utc
+
+    # Localize properly
+    local_dt = tz.localize(datetime.combine(dob_date, tob_time))
+
+    # Convert to UTC
+    utc_dt = local_dt.astimezone(pytz.utc)
+
+    # Compute JD UT
+    year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+    hour_decimal = (
+        utc_dt.hour +
+        utc_dt.minute / 60 +
+        utc_dt.second / 3600 +
+        utc_dt.microsecond / 3_600_000_000
+    )
+
+    jd_ut = swe.julday(year, month, day, hour_decimal)
+    return jd_ut, "Asia/Kolkata", lat, lng
+
 
 def calculate_comprehensive_chart(dob, tob, place):
     """Calculate complete KP chart."""
