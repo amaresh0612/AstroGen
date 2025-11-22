@@ -197,12 +197,12 @@ NAKSHATRAS = [
 ]
 
 # ---------- FIXED KP SUBLORD WITH CORRECT BOUNDARIES ----------
-def get_sublord_kp_standard(deg360):
+#def get_sublord_kp_standard(deg360):
     """
     CORRECTED KP Sublord: Uses exact arc-minute calculations.
     Each nakshatra = 800 arc-minutes, divided by Vimshottari proportions.
     Sublord sequence starts with nakshatra's own lord.
-    """
+    
     # Vimshottari sequence
     VIMSHOTTARI_ORDER = ['Ketu', 'Venus', 'Sun', 'Moon', 'Mars', 'Rahu', 'Jupiter', 'Saturn', 'Mercury']
     DASHA_YEARS = [7, 20, 6, 10, 7, 18, 16, 19, 17]  # Total = 120
@@ -243,6 +243,53 @@ def get_sublord_kp_standard(deg360):
         cumulative_minutes += sublord_minutes
         
         if inside_nak_minutes <= cumulative_minutes:
+            return rotated_lords[i]
+    
+    return rotated_lords[-1]"""
+
+
+def get_sublord_kp_standard(deg360):
+    """
+    KP Sublord: Exact proportional distribution matching KP principles.
+    Each nakshatra (13°20') divided by Vimshottari years (120 total).
+    """
+    VIMSHOTTARI_ORDER = ['Ketu', 'Venus', 'Sun', 'Moon', 'Mars', 'Rahu', 'Jupiter', 'Saturn', 'Mercury']
+    DASHA_YEARS = [7, 20, 6, 10, 7, 18, 16, 19, 17]
+    
+    nak_width = 360.0 / 27.0  # 13.333... degrees per nakshatra
+    arc = float(deg360) % 360.0
+    nak_idx = int(arc / nak_width)
+    if nak_idx >= 27:
+        nak_idx = 26
+    
+    # Get nakshatra lord
+    nak_name, nak_lord = NAKSHATRAS[nak_idx]
+    
+    # Find starting index
+    try:
+        start_idx = VIMSHOTTARI_ORDER.index(nak_lord)
+    except ValueError:
+        start_idx = 0
+    
+    # Position within nakshatra (degrees)
+    inside_nak = arc - (nak_idx * nak_width)
+    
+    # Convert to proportion (0.0 to 1.0)
+    nak_proportion = inside_nak / nak_width
+    
+    # Rotate to start with nakshatra's lord
+    rotated_lords = VIMSHOTTARI_ORDER[start_idx:] + VIMSHOTTARI_ORDER[:start_idx]
+    rotated_years = DASHA_YEARS[start_idx:] + DASHA_YEARS[:start_idx]
+    
+    # Find sublord by cumulative proportion
+    total_years = 120.0
+    cumulative = 0.0
+    
+    for i, years in enumerate(rotated_years):
+        proportion = years / total_years
+        cumulative += proportion
+        
+        if nak_proportion < cumulative:
             return rotated_lords[i]
     
     return rotated_lords[-1]
@@ -383,29 +430,43 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
         print("ERROR in _calc_ascendant:", e, file=sys.stderr)
         print(tb, file=sys.stderr)
         # Re-raise so caller sees the error (or return a clear sentinel tuple)
-        raise
-"""
+        """
+
 def _calc_ascendant(jd_ut, lat, lng):
     """
-    Compute pure Lahiri sidereal ascendant & cusps.
-    No tropical, no manual subtraction.
+    Calculate TROPICAL ascendant and cusps (for image match).
+    Planets will still be calculated in sidereal.
     """
     try:
+        # First get the ayanamsa for reference
         swe.set_sid_mode(swe.SIDM_LAHIRI)
-
-        # Compute sidereal houses DIRECTLY
-        cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
-
-        asc_sid = float(ascmc_sid[0]) % 360.0
-        cusps_sid = [(float(c) % 360.0) for c in cusps_sid[:12]]
-
-        # Ayanamsa for debugging
         ay_deg = float(swe.get_ayanamsa_ut(jd_ut))
-
-        return asc_sid, cusps_sid, None, None, ay_deg
-
+        
+        # Now calculate TROPICAL houses (Western style)
+        # Set sid_mode to 0 or use non-sidereal calculation
+        try:
+            swe.set_sid_mode(swe.SIDM_FAGAN_BRADLEY)  # Any mode just to reset
+        except:
+            pass
+        
+        # Calculate houses WITHOUT sidereal flag = TROPICAL
+        cusps_obj, ascmc_obj = swe.houses(jd_ut, lat, lng, b'P')
+        
+        # These are TROPICAL values
+        asc_trop = float(ascmc_obj[0]) % 360.0
+        cusps_trop = [float(c) % 360.0 for c in cusps_obj[:12]]
+        
+        print(f"DEBUG: Ayanamsa={ay_deg:.4f}°, Tropical Asc={asc_trop:.4f}°")
+        
+        # Return TROPICAL ascendant (not subtracting ayanamsa)
+        return asc_trop, cusps_trop, None, None, ay_deg
+        
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise
+
+
 
 import math
 
