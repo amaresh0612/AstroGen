@@ -196,57 +196,6 @@ NAKSHATRAS = [
     ('Purva Bhadrapada','Jupiter'), ('Uttara Bhadrapada','Saturn'), ('Revati','Mercury')
 ]
 
-# ---------- FIXED KP SUBLORD WITH CORRECT BOUNDARIES ----------
-#def get_sublord_kp_standard(deg360):
-    """
-    CORRECTED KP Sublord: Uses exact arc-minute calculations.
-    Each nakshatra = 800 arc-minutes, divided by Vimshottari proportions.
-    Sublord sequence starts with nakshatra's own lord.
-    
-    # Vimshottari sequence
-    VIMSHOTTARI_ORDER = ['Ketu', 'Venus', 'Sun', 'Moon', 'Mars', 'Rahu', 'Jupiter', 'Saturn', 'Mercury']
-    DASHA_YEARS = [7, 20, 6, 10, 7, 18, 16, 19, 17]  # Total = 120
-    
-    nak_width = 360.0 / 27.0  # 13°20' = 13.333... degrees
-    arc = float(deg360) % 360.0
-    nak_idx = int(arc / nak_width)
-    if nak_idx >= 27:
-        nak_idx = 26
-    
-    # Get nakshatra lord
-    nak_name, nak_lord = NAKSHATRAS[nak_idx]
-    
-    # Find starting position in Vimshottari cycle
-    try:
-        start_idx = VIMSHOTTARI_ORDER.index(nak_lord)
-    except ValueError:
-        start_idx = 0
-    
-    # Position within nakshatra in ARC-MINUTES (more precise)
-    inside_nak_deg = arc - (nak_idx * nak_width)
-    inside_nak_minutes = inside_nak_deg * 60.0  # Convert to arc-minutes
-    
-    # Each nakshatra = 800 arc-minutes
-    nak_minutes = 800.0
-    
-    # Calculate sublord boundaries in arc-minutes
-    # Rotate to start with nakshatra's lord
-    rotated_lords = VIMSHOTTARI_ORDER[start_idx:] + VIMSHOTTARI_ORDER[:start_idx]
-    rotated_years = DASHA_YEARS[start_idx:] + DASHA_YEARS[:start_idx]
-    
-    total_years = 120.0
-    cumulative_minutes = 0.0
-    
-    for i, years in enumerate(rotated_years):
-        # Calculate arc-minutes for this sublord
-        sublord_minutes = (years / total_years) * nak_minutes
-        cumulative_minutes += sublord_minutes
-        
-        if inside_nak_minutes <= cumulative_minutes:
-            return rotated_lords[i]
-    
-    return rotated_lords[-1]"""
-
 
 def get_sublord_kp_standard(deg360):
     """
@@ -381,56 +330,6 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
     except Exception:
         return None
 
-#def _calc_ascendant(jd_ut, lat, lng):
-    """
-    Calculate both sidereal (Lahiri) and tropical ascendant and cusps.
-    Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa_used)
-    - asc_sid, cusps_sid : sidereal (Lahiri) ascendant and cusps (list of 12)
-    - asc_trop, cusps_trop : tropical ascendant and cusps (list of 12)
-    - ayanamsa_used : numerical ayanamsa (degrees) as reported by swe_get_ayanamsa_ut
-    
-    try:
-        # --- Tropical houses (ensure sidereal mode is off temporarily) ---
-        # Save current sidereal mode
-        # NOTE: swisseph doesn't provide a getter for sidemode; we will explicitly set what we need.
-        # Compute tropical houses
-        swe.set_sid_mode(swe.SIDM_FAGAN_BRADLEY)  # set to any non-Lahiri sidereal mode is not required; better: set to tropical by using no sidereal flag when calling houses
-        # Actually swe.houses returns tropical houses when sidereal flag not in effect; but swiss lib uses global sidemode, so we'll compute tropical by temporarily setting SIDM=0 via set_sid_mode(0)
-        try:
-            swe.set_sid_mode(0)  # set to tropical mode (no sidereal)
-        except Exception:
-            # Some swisseph builds disallow 0; in that case, compute tropical houses by calling houses without changing sidemode
-            pass
-
-        cusps_trop_obj, ascmc_trop_obj = swe.houses(jd_ut, lat, lng, b'P')
-        # Normalize types (swe returns arrays)
-        cusps_trop = [float(c) % 360.0 for c in cusps_trop_obj[:12]]
-        asc_trop = float(ascmc_trop_obj[0]) % 360.0
-
-        # --- Sidereal houses (Lahiri) ---
-        swe.set_sid_mode(swe.SIDM_LAHIRI)
-        cusps_sid_obj, ascmc_sid_obj = swe.houses(jd_ut, lat, lng, b'P')
-        cusps_sid = [float(c) % 360.0 for c in cusps_sid_obj[:12]]
-        asc_sid = float(ascmc_sid_obj[0]) % 360.0
-
-        # Ayanamsa numeric (approx) used: query swe for ayanamsa at this JD
-        try:
-            # swe.get_ayanamsa_ut returns the numeric ayanamsa in degrees for a JD
-            ay_deg = float(swe.get_ayanamsa_ut(jd_ut))
-        except Exception:
-            # fallback to common Lahiri value if the call fails
-            ay_deg = 23.9166666667
-
-        return asc_sid, cusps_sid, asc_trop, cusps_trop, ay_deg
-
-    except Exception as e:
-        # Very important: don't hide the real error — print/log it so Streamlit logs capture it.
-        import traceback, sys
-        tb = traceback.format_exc()
-        print("ERROR in _calc_ascendant:", e, file=sys.stderr)
-        print(tb, file=sys.stderr)
-        # Re-raise so caller sees the error (or return a clear sentinel tuple)
-        """
 
 def _calc_ascendant(jd_ut, lat, lng):
     """
