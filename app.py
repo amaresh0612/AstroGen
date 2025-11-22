@@ -177,7 +177,7 @@ except Exception:
     pass
 
 # ---------- Config ----------
-CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
+CHITRAPAKSHA_AYANAMSA_DEG = 23.9166666667   # 23°55'
 SIGNS = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces']
 SIGN_RULERS = {
     'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury', 'Cancer': 'Moon',
@@ -314,7 +314,7 @@ def _calc_ascendant(jd_ut, lat, lng):
     """
     try:
         # Use FIXED Chitrapaksha ayanamsa instead of swisseph's calculation
-        ay = CHITRAPAKSHA_AYANAMSA_DEG  # 24.0166666667°
+        ay = CHITRAPAKSHA_AYANAMSA_DEG
         
         # Calculate tropical houses using Placidus
         cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')  # Placidus
