@@ -277,11 +277,34 @@ def _planet_abbr(name: str) -> str:
     return mapping.get(name, name[:3].upper())
 
 def get_coordinates(place):
-    g = Nominatim(user_agent="astrologyapp")
-    loc = g.geocode(place, timeout=10)
-    if not loc:
-        return None, None
-    return loc.latitude, loc.longitude
+    # QUICK FIX: handle common Indian cities locally
+    fallback_places = {
+        "Bhubaneswar": (20.2961, 85.8245),
+        "Bhubaneshwar": (20.2961, 85.8245),
+        "Bhubaneswar, Odisha": (20.2961, 85.8245),
+        "Delhi": (28.6139, 77.2090),
+        "Mumbai": (19.0760, 72.8777),
+        "Hyderabad": (17.3850, 78.4867),
+        "Chennai": (13.0827, 80.2707),
+        "Bangalore": (12.9716, 77.5946),
+        "Kolkata": (22.5726, 88.3639)
+    }
+
+    key = place.strip()
+    if key in fallback_places:
+        return fallback_places[key]
+
+    # Otherwise try geopy but catch failure
+    try:
+        g = Nominatim(user_agent="astrogen-app")  # MUST have user-agent
+        loc = g.geocode(place, timeout=10)
+        if loc:
+            return loc.latitude, loc.longitude
+    except:
+        pass
+
+    # If still failing:
+    raise ValueError(f"Unable to geocode location: {place}")
 
 
 def _calc_planet_longitude_sidereal(jd_ut, planet_const):
