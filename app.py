@@ -306,14 +306,14 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
     except Exception:
         return None
 
-def _calc_ascendant(jd_ut, lat, lng):
+#def _calc_ascendant(jd_ut, lat, lng):
     """
     Calculate both sidereal (Lahiri) and tropical ascendant and cusps.
     Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa_used)
     - asc_sid, cusps_sid : sidereal (Lahiri) ascendant and cusps (list of 12)
     - asc_trop, cusps_trop : tropical ascendant and cusps (list of 12)
     - ayanamsa_used : numerical ayanamsa (degrees) as reported by swe_get_ayanamsa_ut
-    """
+    
     try:
         # --- Tropical houses (ensure sidereal mode is off temporarily) ---
         # Save current sidereal mode
@@ -355,6 +355,28 @@ def _calc_ascendant(jd_ut, lat, lng):
         print("ERROR in _calc_ascendant:", e, file=sys.stderr)
         print(tb, file=sys.stderr)
         # Re-raise so caller sees the error (or return a clear sentinel tuple)
+        raise
+"""
+def _calc_ascendant(jd_ut, lat, lng):
+    """
+    Compute pure Lahiri sidereal ascendant & cusps.
+    No tropical, no manual subtraction.
+    """
+    try:
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+
+        # Compute sidereal houses DIRECTLY
+        cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
+
+        asc_sid = float(ascmc_sid[0]) % 360.0
+        cusps_sid = [(float(c) % 360.0) for c in cusps_sid[:12]]
+
+        # Ayanamsa for debugging
+        ay_deg = float(swe.get_ayanamsa_ut(jd_ut))
+
+        return asc_sid, cusps_sid, None, None, ay_deg
+
+    except Exception as e:
         raise
 
 import math
@@ -540,7 +562,7 @@ def calculate_comprehensive_chart(dob, tob, place):
     planets = {
         'Sun': swe.SUN, 'Moon': swe.MOON, 'Mars': swe.MARS,
         'Mercury': swe.MERCURY, 'Jupiter': swe.JUPITER,
-        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.TRUE_NODE
+        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.MEAN_NODE
     }
     
     planet_data = {}
