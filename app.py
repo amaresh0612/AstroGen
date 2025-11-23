@@ -188,7 +188,8 @@ except Exception:
         # Last-resort: leave default but warn
         print("Warning: unable to set user/krishnamurti sidereal mode; results may vary.")
 # ---------- Config ----------
-CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
+#CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
+CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
 SIGNS = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces']
 SIGN_RULERS = {
     'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury', 'Cancer': 'Moon',
