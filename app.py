@@ -170,12 +170,23 @@ if "birth_details" not in st.session_state:
 
 
 # ========== CRITICAL FIX: Use KP Ayanamsa (not Lahiri) ==========
-try:
+#try:
     # KP uses its own ayanamsa calculation
-    swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
+#    swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
+#except Exception:
+#    pass
+# ---------- CONSISTENT AYANAMSA: Use fixed CHITRAPAKSHA everywhere ----------
+# CHITRAPAKSHA_AYANAMSA_DEG is defined below (24.0166666667)
+try:
+    # Preferred: set a USER sidereal mode with the fixed Chitrapaksha value
+    swe.set_sid_mode(swe.SIDM_USER, CHITRAPAKSHA_AYANAMSA_DEG)
 except Exception:
-    pass
-
+    # Fallback to KRISHNAMURTI if USER not supported
+    try:
+        swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
+    except Exception:
+        # Last-resort: leave default but warn
+        print("Warning: unable to set user/krishnamurti sidereal mode; results may vary.")
 # ---------- Config ----------
 CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
 SIGNS = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces']
@@ -306,9 +317,39 @@ def get_coordinates(place):
     # If still failing:
     raise ValueError(f"Unable to geocode location: {place}")
 
-
 def _calc_planet_longitude_sidereal(jd_ut, planet_const):
-    """Return sidereal longitude using KRISHNAMURTI ayanamsa."""
+    """
+    Return sidereal longitude (degrees 0..360) for planet_const.
+    Automatically uses TRUE_NODE when planet_const == swe.TRUE_NODE.
+    Uses SWIEPH ephemeris and the current sidereal mode.
+    """
+    try:
+        flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+        # If the caller passed the constant for TRUE_NODE, request true node explicitly
+        if planet_const == swe.TRUE_NODE:
+            # request the true node explicitly
+            res = swe.calc_ut(jd_ut, swe.TRUE_NODE, flags | swe.FLG_TRUE_NODE)
+        else:
+            res = swe.calc_ut(jd_ut, planet_const, flags)
+        lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
+        return float(lon) % 360.0
+    except Exception as e:
+        print(f"Error calculating sidereal for {planet_const}: {e}")
+        return None
+
+def _calc_planet_longitude_tropical(jd_ut, planet_const):
+    """Return tropical (geocentric) longitude using SWIEPH ephemeris."""
+    try:
+        flags = swe.FLG_SWIEPH
+        res = swe.calc_ut(jd_ut, planet_const, flags)
+        lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
+        return float(lon) % 360.0
+    except Exception as e:
+        print(f"Error calculating tropical for {planet_const}: {e}")
+        return None
+"""
+def _calc_planet_longitude_sidereal(jd_ut, planet_const):
+    Return sidereal longitude using KRISHNAMURTI ayanamsa
     try:
         res = swe.calc_ut(jd_ut, planet_const, swe.FLG_SIDEREAL)
         lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
@@ -316,25 +357,26 @@ def _calc_planet_longitude_sidereal(jd_ut, planet_const):
     except Exception as e:
         print(f"Error calculating {planet_const}: {e}")
         return None
+"""
 
 
-
-
+"""
 def _calc_planet_longitude_tropical(jd_ut, planet_const):
-    """Calculate tropical longitude."""
+    Calculate tropical longitude.
     try:
         res = swe.calc_ut(jd_ut, planet_const)
         lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
         return float(lon) % 360.0
     except Exception:
         return None
-
+"""
+"""
 def _calc_ascendant(jd_ut, lat, lng):
-    """
+    
     Calculate both tropical and sidereal ascendant/cusps.
     Uses Chitrapaksha ayanamsa (24°01'00") to match reference documents.
     Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa)
-    """
+    
     try:
         # Use FIXED Chitrapaksha ayanamsa instead of swisseph's calculation
         ay = CHITRAPAKSHA_AYANAMSA_DEG  # 24.0166666667°
@@ -348,6 +390,29 @@ def _calc_ascendant(jd_ut, lat, lng):
         asc_sid = (asc_trop - ay) % 360.0
         cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
         
+        return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
+    except Exception as e:
+        print(f"ERROR in _calc_ascendant: {e}")
+        return None, None, None, None, None
+"""
+def _calc_ascendant(jd_ut, lat, lng):
+    """
+    Calculate sidereal ascendant and cusps using the configured sidereal mode.
+    Returns: (asc_sid, cusps_sid, asc_trop, cusps_trop, ayanamsa)
+    - asc_sid/cusps_sid: sidereal values (since swe.sidereal already set)
+    - asc_trop/cusps_trop: computed by adding ayanamsa back to sidereal
+    """
+    try:
+        # Use Placidus (b'P') or change to preferred house system
+        cusps_sid, ascmc_sid = swe.houses(jd_ut, lat, lng, b'P')
+        asc_sid = float(ascmc_sid[0]) % 360.0
+        cusps_sid = [float(c) % 360.0 for c in cusps_sid[:12]]
+
+        # Compute tropical by adding configured ayanamsa
+        ay = CHITRAPAKSHA_AYANAMSA_DEG
+        asc_trop = (asc_sid + ay) % 360.0
+        cusps_trop = [ (c + ay) % 360.0 for c in cusps_sid ]
+
         return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
     except Exception as e:
         print(f"ERROR in _calc_ascendant: {e}")
