@@ -533,7 +533,7 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     # CORRECTION: Add 10.5 seconds to match reference IMAGE
     # Reference software appears to round/calculate time slightly differently
     from datetime import timedelta
-    corrected_tob = (datetime.combine(dob_date, tob_time) - timedelta(seconds=2)).time()
+    corrected_tob = (datetime.combine(dob_date, tob_time) + timedelta(seconds=10.5)).time()
     
     local_dt = datetime.combine(dob_date, corrected_tob)
     tf = TimezoneFinder()
