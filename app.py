@@ -319,22 +319,49 @@ def get_coordinates(place):
 
 def _calc_planet_longitude_sidereal(jd_ut, planet_const):
     """
-    Return sidereal longitude (degrees 0..360) for planet_const.
-    Automatically uses TRUE_NODE when planet_const == swe.TRUE_NODE.
-    Uses SWIEPH ephemeris and the current sidereal mode.
+    Robust sidereal longitude extractor.
+    - For nodes: try TRUE_NODE first, fall back to MEAN_NODE.
+    - Uses SWIEPH + SIDEREAL flags.
+    Returns float degrees 0..360 or None on failure.
     """
     try:
         flags = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
-        # If the caller passed the constant for TRUE_NODE, request true node explicitly
+        res = None
+
+        # If caller asked for TRUE_NODE constant, try true node then fallback
         if planet_const == swe.TRUE_NODE:
-            # request the true node explicitly
-            res = swe.calc_ut(jd_ut, swe.TRUE_NODE, flags | swe.FLG_TRUE_NODE)
+            # Preferred: request true node explicitly (some swisseph builds require FLG_TRUE_NODE)
+            try:
+                res = swe.calc_ut(jd_ut, swe.TRUE_NODE, flags | swe.FLG_TRUE_NODE)
+            except Exception as e_true:
+                # fallback to mean node if true node call fails
+                try:
+                    res = swe.calc_ut(jd_ut, swe.MEAN_NODE, flags)
+                except Exception as e_mean:
+                    # report both errors for debugging
+                    print(f"Rahu calc: TRUE_NODE error: {e_true}; MEAN_NODE error: {e_mean}")
+                    return None
         else:
+            # normal planet
             res = swe.calc_ut(jd_ut, planet_const, flags)
-        lon = res[0][0] if isinstance(res[0], (list, tuple)) else res[0]
-        return float(lon) % 360.0
+
+        # Extract longitude robustly
+        if res is None:
+            print("Rahu calc: swisseph returned None")
+            return None
+
+        # res[0] could be list-like ([lon, lat, dist, speed,...]) or a float depending on build
+        first = res[0]
+        if isinstance(first, (list, tuple)):
+            lon = float(first[0])
+        else:
+            lon = float(first)
+
+        return lon % 360.0
+
     except Exception as e:
-        print(f"Error calculating sidereal for {planet_const}: {e}")
+        # Print debug detail to Streamlit console / logs
+        print(f"Error calculating sidereal for {planet_const}: {e}; res={locals().get('res', None)}")
         return None
 
 def _calc_planet_longitude_tropical(jd_ut, planet_const):
