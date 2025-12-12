@@ -7,12 +7,14 @@ import swisseph as swe
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
 import pytz
+import math
+import html
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from PIL import Image, ImageDraw, ImageFont
 import math
 import pandas as pd
@@ -169,14 +171,7 @@ if "birth_details" not in st.session_state:
     st.session_state.birth_details = None
 
 
-# ========== CRITICAL FIX: Use KP Ayanamsa (not Lahiri) ==========
-#try:
-    # KP uses its own ayanamsa calculation
-#    swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
-#except Exception:
-#    pass
-# ---------- CONSISTENT AYANAMSA: Use fixed CHITRAPAKSHA everywhere ----------
-# CHITRAPAKSHA_AYANAMSA_DEG is defined below (24.0166666667)
+CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
 try:
     # Preferred: set a USER sidereal mode with the fixed Chitrapaksha value
     swe.set_sid_mode(swe.SIDM_USER, CHITRAPAKSHA_AYANAMSA_DEG)
@@ -189,7 +184,7 @@ except Exception:
         print("Warning: unable to set user/krishnamurti sidereal mode; results may vary.")
 # ---------- Config ----------
 #CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
-CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
+
 SIGNS = ['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio','Sagittarius','Capricorn','Aquarius','Pisces']
 SIGN_RULERS = {
     'Aries': 'Mars', 'Taurus': 'Venus', 'Gemini': 'Mercury', 'Cancer': 'Moon',
@@ -521,6 +516,46 @@ def get_current_dasha(dashas, current_date):
         return dashas[-1], None
     return None, dashas[0] if dashas else (None, None)
 
+
+# ------------------- NEW / FIXED FUNCTIONS -------------------
+
+def get_all_cuspal_sublords(house_cusps, get_sublord_fn):
+    """
+    Compute full 12 cuspal sub-lords from the _cusp degrees_ list.
+    - house_cusps: iterable of 12 degrees (0..360)
+    - get_sublord_fn: function(deg360) -> sublord name (your get_sublord_kp_standard)
+
+    Returns dict keyed by '1'..'12' with sublord string values.
+    """
+    mapping = {}
+    for i, cusp_deg in enumerate(house_cusps, start=1):
+        try:
+            deg = float(cusp_deg) % 360.0
+            sublord = get_sublord_fn(deg)
+        except Exception:
+            sublord = ""
+        mapping[str(i)] = sublord
+    return mapping
+
+
+def get_house_number_whole_sign(degree, asc_degree):
+    """
+    Determine house number using WHOLE-SIGN system:
+      - Identify sign index (0..11) of the given degree
+      - Identify ascendant's sign index
+      - House number = ((planet_sign_index - asc_sign_index) mod 12) + 1
+
+    Returns integer 1..12.
+    """
+    d = float(degree) % 360.0
+    asc = float(asc_degree) % 360.0
+    sign_idx = int(d // 30)  # 0..11
+    asc_sign_idx = int(asc // 30)
+    house = ((sign_idx - asc_sign_idx) % 12) + 1
+    return house
+
+
+
 def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     """
     Convert local birth time to Julian Day (UT).
@@ -640,7 +675,16 @@ def calculate_comprehensive_chart(dob, tob, place):
             'nakshatra': nak_name, 'nakshatra_lord': nak_lord, 
             'pada': pada, 'sublord': sublord
         }
-    
+        # ---------- compute cuspal sublords once ----------
+        cuspal_map = get_all_cuspal_sublords(cusps_sid, get_sublord_kp_standard)
+
+        for pname, pdata in planet_data.items():
+            fd = float(pdata.get('full_degree', 0.0)) % 360.0
+            pdata['house_cuspal'] = get_house_number_from_degree(fd, cusps_sid)
+            pdata['house_whole'] = get_house_number_whole_sign(fd, asc_sid)
+
+        # Ascendant whole-sign (should always be 1)
+        asc_whole = get_house_number_whole_sign(asc_sid, asc_sid)
     # Calculate dashas
     moon_deg = planet_data['Moon']['full_degree']
     dashas = calculate_vimshottari_dasha(moon_deg, datetime.combine(dob, tob))
@@ -671,6 +715,8 @@ def calculate_comprehensive_chart(dob, tob, place):
         'location': {'place': place, 'lat': lat, 'lng': lng, 'tz_name': tz_name},
         'house_cusps_degrees': cusps_sid,
         'asc_degree': asc_sid,
+        'asc_whole': asc_whole,
+        'cuspal_sublords': cuspal_map,
         'ayanamsa': ay,
         'tropical': {'Sun': sun_trop, 'Moon': moon_trop}
     }, None
@@ -751,7 +797,12 @@ def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, show_
     houses = {i: [] for i in range(1, 13)}
     for pname, pdata in planet_data.items():
         full_deg = pdata.get('full_degree') if isinstance(pdata, dict) else pdata
-        hnum = get_house_number_from_degree(full_deg, house_cusps_degrees)
+
+        if isinstance(pdata, dict):
+            hnum = pdata.get('house_whole') or get_house_number_from_degree(full_deg, house_cusps_degrees)
+        else:
+            hnum = get_house_number_from_degree(full_deg, house_cusps_degrees)
+
         label = _planet_abbr(pname)
         
         if show_pada:
@@ -889,7 +940,7 @@ def numerology_life_path(dob):
 def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
     """Generate PDF report."""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=0.45*inch, rightMargin=0.45*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
     story = []
     styles = getSampleStyleSheet()
     
@@ -910,6 +961,10 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
         ["Coordinates:", f"{chart_data['location']['lat']:.3f}°, {chart_data['location']['lng']:.3f}°"],
         ["Ayanamsa:", f"{chart_data.get('ayanamsa', 24.0):.2f}°"]
     ]
+
+    # === ADD FULL 12 CSLs TO PDF ===
+    csl_all = chart_data.get("cuspal_sublords", {}) or st.session_state.get("cuspal_sublords", {})
+
     
     if numerology:
         birth_table_data.append(["Name Number:", str(numerology.get('name_number', ''))])
@@ -924,59 +979,104 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
     ]))
     story.append(birth_table)
     story.append(Spacer(1, 0.15*inch))
-    
+
+    # --- Insert near top of generate_pdf_report, after styles defined ---
+    wrap_style = ParagraphStyle(
+        'Wrap',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=7,
+        leading=8,
+        alignment=TA_LEFT,
+        wordWrap='LTR',
+    )
+
     # Planetary positions table
-    planet_table_data = [["Entity","Sign","Degree","Nakshatra","Pada","Nak Lord","Sub-lord","Sign Lord"]]
-    
-    # Add Ascendant first
+    # Planetary positions table (wrapped Paragraph cells, 10 columns)
+    planet_table_data = [
+        [
+            "House","Entity","Sign","Degree","Nakshatra",
+            "Pada","Nak Lord","Sub-lord","Sign Lord","Cusp Sublord"
+        ]
+    ]
+
+    # Reuse wrap_style (already defined above)
+    def P(text):
+        text = "" if text is None else str(text)
+        return Paragraph(html.escape(text), wrap_style)
+
+    # Ascendant row (use Paragraphs to allow wrapping)
     asc_house = chart_data['houses']['1st (Lagna)']
+    csl_all_pdf = chart_data.get('cuspal_sublords', {}) or (st.session_state.get("cuspal_sublords", {}))
     planet_table_data.append([
-        "Ascendant", 
-        asc_house['sign'], 
-        asc_house['degree'], 
-        asc_house['nakshatra'], 
-        str(asc_house.get('pada','')), 
-        asc_house['nakshatra_lord'], 
-        asc_house['sublord'], 
-        SIGN_RULERS.get(asc_house['sign'],'')
+        P("1 (Lagna)"),
+        P("Ascendant"),
+        P(asc_house.get('sign','')),
+        P(asc_house.get('degree','')),
+        P(asc_house.get('nakshatra','')),
+        P(str(asc_house.get('pada',''))),
+        P(asc_house.get('nakshatra_lord','')),
+        P(asc_house.get('sublord','')),
+        P(SIGN_RULERS.get(asc_house.get('sign',''), '')),
+        P(csl_all_pdf.get("1",""))
     ])
-    
-    # Group planets by house
+
+    # Group planets by whole-sign house (fall back to cuspal)
     house_map = {i: [] for i in range(1,13)}
     for pname, pdata in chart_data['planets'].items():
-        hnum = get_house_number_from_degree(pdata['full_degree'], chart_data['house_cusps_degrees'])
-        house_map[hnum].append((pname, pdata))
-    
-    # Add planets in house order
+        hnum = pdata.get('house_whole') or pdata.get('house_cuspal') or get_house_number_whole_sign(pdata['full_degree'], chart_data['asc_degree'])
+        house_map[int(hnum)].append((pname, pdata))
+
+    # Add planet rows (use Paragraph for each cell)
     for h in range(1, 13):
         for pname, pdata in house_map[h]:
             planet_table_data.append([
-                pname,
-                pdata['sign'],
-                pdata['degree'],
-                pdata['nakshatra'],
-                str(pdata.get('pada','')),
-                pdata['nakshatra_lord'],
-                pdata['sublord'],
-                pdata.get('sign_lord','')
+                P(str(h)),
+                P(pname + (" (R)" if pname in ("Rahu","Ketu") else "")),
+                P(pdata.get('sign','')),
+                P(pdata.get('degree','')),
+                P(pdata.get('nakshatra','')),
+                P(str(pdata.get('pada',''))),
+                P(pdata.get('nakshatra_lord','')),
+                P(pdata.get('sublord','')),
+                P(pdata.get('sign_lord','')),
+                P(csl_all_pdf.get(str(h), ""))
             ])
-    
-    planet_table = Table(planet_table_data, colWidths=[0.9*inch, 0.7*inch, 0.9*inch, 1.1*inch, 0.4*inch, 0.9*inch, 0.8*inch, 0.8*inch])
+
+    # Ten column widths that fit your A4 printable area with the margins used above
+    col_widths = [
+        0.45*inch,  # House
+        1.00*inch,  # Entity
+        0.7*inch,   # Sign
+        0.8*inch,   # Degree
+        1.6*inch,   # Nakshatra
+        0.35*inch,  # Pada
+        0.8*inch,   # Nak Lord
+        0.8*inch,   # Sub-lord
+        0.8*inch,   # Sign Lord
+        1.0*inch    # Cusp Sublord
+    ]
+
+    planet_table = Table(planet_table_data, colWidths=col_widths, repeatRows=1)
     planet_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#E8E8E8')),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER')
+        ('FONTSIZE', (0, 0), (-1, -1), 7),
+        ('GRID', (0,0), (-1,-1), 0.35, colors.grey),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('ALIGN', (0, 0), (0, -1), 'CENTER'),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
     ]))
     story.append(planet_table)
-    story.append(Spacer(1, 0.2*inch))
-    
+    story.append(Spacer(1, 0.15*inch))
+
     # Chart image
     png_bytes = render_chart_png_bytes_pil(chart_data['planets'], chart_data['house_cusps_degrees'], size=1200, show_pada=True)
     img_io = io.BytesIO(png_bytes)
-    img = RLImage(img_io, width=5*inch, height=5*inch)
+    img = RLImage(img_io, width=4.5*inch, height=4.5*inch) 
     story.append(img)
     
     doc.build(story)
@@ -984,8 +1084,6 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
     return buffer
 
 # ========== STREAMLIT UI ==========
-st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout="centered")
-
 # Input form
 st.markdown('<div class="card"><h2>Enter your birth details</h2><div class="muted">Provide accurate date, time and place for best results</div></div>', unsafe_allow_html=True)
 
@@ -1048,6 +1146,13 @@ with st.spinner("Calculating comprehensive KP chart..."):
     st.success("✅ Chart computed successfully!")
 
     st.session_state["chart_result"] = chart_result    
+    # === store all 12 cuspal sub-lords ===
+    csl_map = chart_result.get('cuspal_sublords') \
+              or get_all_cuspal_sublords(chart_result['house_cusps_degrees'], get_sublord_kp_standard)
+    st.session_state["chart_result"]['cuspal_sublords'] = csl_map
+    st.session_state["cuspal_sublords"] = csl_map
+    # === END ADD ===
+
 
     st.session_state["birth_details"] = {
     'dob': dob,
@@ -1216,12 +1321,18 @@ except Exception as e:
     st.error(f"Error building summary: {e}")
 
 # Planetary positions table
+# Planetary positions table
 try:
+    # Ensure cuspal sub-lords map is available in this scope
+    csl_all = chart_result.get('cuspal_sublords', {}) or st.session_state.get('cuspal_sublords', {})
+
     rows = []
     
-    # Ascendant first
+    # Ascendant first - ensure house number variable exists
     asc_house = chart_result['houses']['1st (Lagna)']
+    hnum = 1  # Ascendant is house 1
     rows.append({
+        "House": hnum,
         "Entity": "Asc",
         "Sign": asc_house.get("sign",""),
         "Degree": asc_house.get("degree",""),
@@ -1230,7 +1341,8 @@ try:
         "Nakshatra": asc_house.get("nakshatra",""),
         "Pad": asc_house.get("pada",""),
         "Nakshatra Lord": asc_house.get("nakshatra_lord",""),
-        "S. Lord": asc_house.get("sublord","")
+        "S. Lord": asc_house.get("sublord",""),
+        "Cusp Sublord": csl_all.get("1","") 
     })
 
     # Group planets by house
@@ -1239,15 +1351,15 @@ try:
         fd = pdata.get('full_degree')
         if fd is None:
             continue
-        hnum = get_house_number_from_degree(float(fd), chart_result['house_cusps_degrees'])
-        house_map[hnum].append((pname, pdata))
-
+        hnum = pdata.get('house_whole') or pdata.get('house_cuspal') or get_house_number_whole_sign(float(fd), chart_result['asc_degree'])
+        house_map[int(hnum)].append((pname, pdata))
     # Add planets in house order
     for h in range(1, 13):
         for pname, pdata in house_map[h]:
             deg_text = pdata.get('degree', '')
             sign_lord = pdata.get('sign_lord', SIGN_RULERS.get(pdata.get('sign',''), ''))
             rows.append({
+                "House": h,
                 "Entity": pname + (" (R)" if pname in ("Rahu","Ketu") else ""),
                 "Sign": pdata.get("sign",""),
                 "Degree": deg_text,
@@ -1256,20 +1368,22 @@ try:
                 "Nakshatra": pdata.get("nakshatra",""),
                 "Pad": pdata.get("pada",""),
                 "Nakshatra Lord": pdata.get("nakshatra_lord",""),
-                "S. Lord": pdata.get("sublord","")
+                "S. Lord": pdata.get("sublord",""),
+                "Cusp Sublord": csl_all.get(str(h), "") 
             })
 
     # Render HTML table
     header_html = """
     <thead>
       <tr>
-        <th>Entity</th><th>Sign</th><th>Degree</th><th>Position</th><th>Lord</th>
-        <th>Nakshatra</th><th>Pad</th><th>Nakshatra Lord</th><th>S. Lord</th>
+        <th>House</th><th>Entity</th><th>Sign</th><th>Degree</th><th>Position</th><th>Lord</th>
+        <th>Nakshatra</th><th>Pad</th><th>Nakshatra Lord</th><th>S. Lord</th><th>Cusp Sublord</th>
       </tr>
     </thead>
     """
     body_html = "<tbody>" + "".join(
         f"<tr>"
+        f"<td>{html.escape(str(r.get('House','')))}</td>"
         f"<td>{html.escape(str(r.get('Entity','')))}</td>"
         f"<td>{html.escape(str(r.get('Sign','')))}</td>"
         f"<td>{html.escape(str(r.get('Degree','')))}</td>"
@@ -1279,6 +1393,7 @@ try:
         f"<td>{html.escape(str(r.get('Pad','')))}</td>"
         f"<td>{html.escape(str(r.get('Nakshatra Lord','')))}</td>"
         f"<td>{html.escape(str(r.get('S. Lord','')))}</td>"
+        f"<td>{html.escape(str(r.get('Cusp Sublord','')))}</td>"
         f"</tr>"
         for r in rows
     ) + "</tbody>"
@@ -1289,6 +1404,7 @@ try:
     st.markdown(table_html, unsafe_allow_html=True)
 except Exception as e:
     st.error(f"Error building planetary table: {e}")
+
 
 # Optional house cusps - REMOVED (redundant with planetary table)
 # The house cusp information is already shown in the planetary positions table
