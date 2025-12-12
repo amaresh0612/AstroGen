@@ -462,46 +462,128 @@ def classify_position_simple(planet, sign_name, deg_in_sign):
     
     return "Neutral"
 
-def calculate_vimshottari_dasha(moon_degree, birth_date):
-    """Calculate Vimshottari dasha periods."""
+
+def calculate_vimshottari_dasha(moon_degree: float, birth_dt: datetime):
+    """
+    Calculate Vimshottari mahadashas starting at birth_dt.
+    - moon_degree: sidereal Moon longitude in degrees (0..360).
+    - birth_dt: a datetime (preferably aware or local as used elsewhere).
+    Returns: list of mahadashas in order (each dict has lord, start, end, years).
+    """
+    # Standard Vimshottari order & durations (years)
     dasha_lords = ['Ketu', 'Venus', 'Sun', 'Moon', 'Mars', 'Rahu', 'Jupiter', 'Saturn', 'Mercury']
     dasha_years = [7, 20, 6, 10, 7, 18, 16, 19, 17]
-    
-    nak_width = 13.333333333333334
-    nak_num = int((moon_degree % 360.0) / nak_width) % 27
-    nak_lord_index = nak_num % 9
-    
-    inside = (moon_degree % nak_width)
-    nak_fraction = inside / nak_width
-    
-    first_dasha_total = dasha_years[nak_lord_index]
-    first_dasha_balance = first_dasha_total * (1.0 - nak_fraction)
-    
+    total_cycle_years = sum(dasha_years)  # should be 120
+
+    # Compute which nakshatra (0..26) the moon is in and fraction inside it
+    nak_width = 360.0 / 27.0  # 13°20'
+    moon_arc = float(moon_degree) % 360.0
+    nak_idx = int(math.floor(moon_arc / nak_width))
+    if nak_idx >= 27:
+        nak_idx = 26
+
+    # get nakshatra lord from your NAKSHATRAS lookup
+    nak_name, nak_lord = NAKSHATRAS[nak_idx]
+
+    # fraction inside the nakshatra (0..1)
+    inside_deg = moon_arc - (nak_idx * nak_width)
+    nak_fraction = inside_deg / nak_width
+
+    # the starting mahadasha is the one ruled by the nakshatra lord
+    try:
+        start_idx = dasha_lords.index(nak_lord)
+    except ValueError:
+        # fallback to Moon index (safe default)
+        start_idx = dasha_lords.index('Moon')
+
+    # remaining portion of the first mahadasha (in years)
+    first_maha_total = dasha_years[start_idx]
+    first_maha_balance = first_maha_total * (1.0 - nak_fraction)
+
     dashas = []
-    current_start = datetime.combine(birth_date, datetime.min.time())
-    
+    current_start = birth_dt if isinstance(birth_dt, datetime) else datetime.combine(birth_dt, datetime.min.time())
+
+    # First (balance) mahadasha
+    first_end = current_start + timedelta(days=365.25 * first_maha_balance)
     dashas.append({
-        'lord': dasha_lords[nak_lord_index],
+        'lord': dasha_lords[start_idx],
         'start': current_start,
-        'years': first_dasha_balance,
-        'end': current_start + timedelta(days=365.25 * first_dasha_balance)
+        'years': first_maha_balance,
+        'end': first_end
     })
-    
-    current_start = dashas[-1]['end']
-    for i in range(1, 30):
-        li = (nak_lord_index + i) % 9
-        years = dasha_years[li]
+
+    # subsequent full mahadashas until a safe horizon (e.g., 210 years) or count cap
+    # subsequent full mahadashas until a safe horizon (100 years) or count cap
+    current_start = first_end
+    i = 1
+    while True:
+        idx = (start_idx + i) % 9
+        years = dasha_years[idx]
+        end_dt = current_start + timedelta(days=365.25 * years)
         dashas.append({
-            'lord': dasha_lords[li],
+            'lord': dasha_lords[idx],
             'start': current_start,
             'years': years,
-            'end': current_start + timedelta(days=365.25 * years)
+            'end': end_dt
         })
-        current_start = dashas[-1]['end']
-        if (dashas[-1]['end'] - dashas[0]['start']).days > 365.25 * 210:
+        current_start = end_dt
+        i += 1
+        # STOP when mahadasha end would exceed 100 years from the first mahadasha start
+        horizon_days = 365.25 * 100.0
+        if (dashas[-1]['end'] - dashas[0]['start']).days > horizon_days:
+            # trim the last if it overshot the 100-year horizon
+            if (dashas[-1]['start'] - dashas[0]['start']).days >= horizon_days:
+                dashas.pop()  # remove last completely if it starts beyond horizon
+            else:
+                # clamp the end date to the horizon boundary
+                dashas[-1]['end'] = dashas[0]['start'] + timedelta(days=horizon_days)
+                dashas[-1]['years'] = (dashas[-1]['end'] - dashas[-1]['start']).days / 365.25
             break
-    
+        if i > 40:  # defensive cap
+            break
+
+
     return dashas
+
+
+def compute_antardashas(maha_dasha, all_dasha_years = [7,20,6,10,7,18,16,19,17],
+                        all_dasha_lords = ['Ketu','Venus','Sun','Moon','Mars','Rahu','Jupiter','Saturn','Mercury']):
+    """
+    Given one maha_dasha dict with 'lord','start','years','end', return a list of 9 antardashas.
+    Each antar-dasha has proportional length = maha_length * (planet_year / 120).
+    Returns list of dicts {lord, start, end, years}
+    """
+    maha_years = float(maha_dasha['years'])
+    # normalization denominator = 120 (sum of Vimshottari years)
+    denom = float(sum(all_dasha_years))
+    antars = []
+    cur = maha_dasha['start']
+    # Find cycle index where first antar starts — antar cycle always begins with same planet order as Vimshottari,
+    # but the antar cycle for a given maha starts from its own starting point: the antar sequence for a maha
+    # begins from the maha's starting lord index in the Vimshottari cycle.
+    try:
+        start_idx = all_dasha_lords.index(maha_dasha['lord'])
+    except ValueError:
+        start_idx = 0
+
+    for i in range(9):
+        idx = (start_idx + i) % 9
+        antar_years = maha_years * (all_dasha_years[idx] / denom)
+        end_dt = cur + timedelta(days=365.25 * antar_years)
+        antars.append({
+            'lord': all_dasha_lords[idx],
+            'start': cur,
+            'years': antar_years,
+            'end': end_dt
+        })
+        cur = end_dt
+
+    # Guard: ensure last antar end aligns with maha end (adjust tiny float drift)
+    if antars:
+        antars[-1]['end'] = maha_dasha['end']
+    return antars
+
+
 
 def get_current_dasha(dashas, current_date):
     """Get current and upcoming dasha."""
@@ -687,10 +769,15 @@ def calculate_comprehensive_chart(dob, tob, place):
         asc_whole = get_house_number_whole_sign(asc_sid, asc_sid)
     # Calculate dashas
     moon_deg = planet_data['Moon']['full_degree']
-    dashas = calculate_vimshottari_dasha(moon_deg, datetime.combine(dob, tob))
-    current_dasha, upcoming_dasha = get_current_dasha(dashas, datetime.now())
+    # compute full raw list (list of mahadasha dicts)
+    raw_dashas = calculate_vimshottari_dasha(moon_deg, datetime.combine(dob, tob))
+
+    # find current & upcoming using helper
+    current_dasha, upcoming_dasha = get_current_dasha(raw_dashas, datetime.now())
+
     
     dasha_info = {
+        'raw': raw_dashas,   # <-- important: full list used by PDF table
         'current': {
             'lord': current_dasha['lord'],
             'start': current_dasha['start'].strftime('%Y-%m-%d'),
@@ -700,7 +787,7 @@ def calculate_comprehensive_chart(dob, tob, place):
         'upcoming': {
             'lord': upcoming_dasha['lord'],
             'start': upcoming_dasha['start'].strftime('%Y-%m-%d'),
-            'years': f"{upcoming_dasha['years']:.0f}"
+            'years': f"{upcoming_dasha['years']:.2f}"
         } if upcoming_dasha else None
     }
     
@@ -1078,7 +1165,93 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
     img_io = io.BytesIO(png_bytes)
     img = RLImage(img_io, width=4.5*inch, height=4.5*inch) 
     story.append(img)
-    
+
+    # --- Vimshottari Dasha + Antardasha table with durations (years) ---
+    from datetime import datetime as _dt
+
+    # load raw dashas from chart_data / session
+    raw_dashas = None
+    if isinstance(chart_data.get('dashas'), dict) and chart_data['dashas'].get('raw'):
+        raw_dashas = list(chart_data['dashas']['raw'])
+    elif st.session_state.get("chart_result", {}).get('raw_dashas'):
+        raw_dashas = list(st.session_state["chart_result"]['raw_dashas'])
+
+    # normalize: ensure dates are datetimes
+    def _ensure_dt(x):
+        if isinstance(x, _dt):
+            return x
+        try:
+            return _dt.fromisoformat(str(x))
+        except Exception:
+            try:
+                return _dt.strptime(str(x), "%Y-%m-%d")
+            except Exception:
+                return None
+
+    if raw_dashas:
+        # ensure each item has datetime objects
+        for r in raw_dashas:
+            if not isinstance(r.get('start'), _dt):
+                r['start'] = _ensure_dt(r.get('start')) or r.get('start')
+            if not isinstance(r.get('end'), _dt):
+                r['end'] = _ensure_dt(r.get('end')) or r.get('end')
+
+        # apply 100-year horizon relative to first mahadasha start
+        first_start = raw_dashas[0].get('start')
+        if isinstance(first_start, _dt):
+            horizon_end = first_start + timedelta(days=365.25 * 100.0)
+            filtered = []
+            for r in raw_dashas:
+                r_start = r.get('start')
+                if not isinstance(r_start, _dt):
+                    continue
+                if r_start <= horizon_end:
+                    # if r['end'] extends past horizon, clamp it
+                    if isinstance(r.get('end'), _dt) and r['end'] > horizon_end:
+                        r = r.copy()
+                        r['end'] = horizon_end
+                        r['years'] = (r['end'] - r['start']).days / 365.25
+                    filtered.append(r)
+            raw_dashas = filtered
+        else:
+            # if first_start is not a datetime, fall back to trimming the first ~12 dasha items
+            raw_dashas = raw_dashas[:12]
+
+
+    if raw_dashas:
+        story.append(Spacer(1, 0.05*inch))
+        story.append(Paragraph("Vimshottari Dasha (Mahadasha & Antardasha)", styles['Heading3']))
+        # Table header: show Mahadasha, Start, End, Duration (years), Antardashas (expanded)
+        dash_table_data = [["Mahadasha", "Start", "End", "Duration (yrs)", "Antardasha (lord — start → end (yrs))"]]
+
+        for maha in raw_dashas:
+            antars = compute_antardashas(maha)
+            antar_lines = []
+            for a in antars:
+                antar_lines.append(f"{a['lord']} — {a['start'].strftime('%Y-%m-%d')} → {a['end'].strftime('%Y-%m-%d')} ({a['years']:.2f} y)")
+            dash_table_data.append([
+                maha['lord'],
+                maha['start'].strftime('%Y-%m-%d'),
+                maha['end'].strftime('%Y-%m-%d'),
+                f"{maha['years']:.2f}",
+                Paragraph("<br/>".join(html.escape(l) for l in antar_lines), wrap_style)
+            ])
+
+        # column widths - adjust if you need narrower/wider antardasha column
+        dt = Table(dash_table_data, colWidths=[1.0*inch, 0.95*inch, 0.95*inch, 0.8*inch, 3.0*inch], repeatRows=1)
+        dt.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
+            ('GRID', (0,0), (-1,-1), 0.35, colors.grey),
+            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('ALIGN', (3,1), (3,-1), 'CENTER'),  # center the duration column
+            ('LEFTPADDING', (0,0), (-1,-1), 4),
+            ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(dt)
+        story.append(Spacer(1, 0.1*inch))
+
+
     doc.build(story)
     buffer.seek(0)
     return buffer
