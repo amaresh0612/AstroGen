@@ -693,7 +693,7 @@ def calculate_comprehensive_chart(dob, tob, place):
     planets = {
         'Sun': swe.SUN, 'Moon': swe.MOON, 'Mars': swe.MARS,
         'Mercury': swe.MERCURY, 'Jupiter': swe.JUPITER,
-        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.MEAN_NODE
+        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.TRUE_NODE
     }
     
     planet_data = {}
