@@ -171,7 +171,7 @@ if "birth_details" not in st.session_state:
     st.session_state.birth_details = None
 
 
-CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
+#CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
 try:
     # Preferred: set a USER sidereal mode with the fixed Chitrapaksha value
     swe.set_sid_mode(swe.SIDM_USER, CHITRAPAKSHA_AYANAMSA_DEG)
@@ -314,34 +314,24 @@ def get_coordinates(place):
     raise ValueError(f"Unable to geocode location: {place}")
 
 def _calc_planet_longitude_sidereal(jd_ut, planet_const):
-    """
-    Compute sidereal longitude USING TRUE NODE for Rahu/Ketu.
-    We ALWAYS compute TRUE_NODE. No fallback to MEAN_NODE.
-    Sidereal = tropical - CHITRAPAKSHA_AYANAMSA_DEG.
-    """
     try:
-        # Always compute tropical first
-        flags = swe.FLG_SWIEPH
-        if planet_const == swe.TRUE_NODE:
-            # Request the TRUE NODE (Swisseph accepts TRUE_NODE directly)
-            res = swe.calc_ut(jd_ut, swe.TRUE_NODE, flags)
-        else:
-            res = swe.calc_ut(jd_ut, planet_const, flags)
-
-        if res is None:
-            print("Planet calc failed:", planet_const)
-            return None
-
-        data = res[0]
-        lon_trop = float(data[0]) if isinstance(data, (list, tuple)) else float(data)
-
-        # Convert to sidereal using fixed Chitrapaksha ayanamsa
-        lon_sid = (lon_trop - CHITRAPAKSHA_AYANAMSA_DEG) % 360.0
+        # 1. Set the correct Sidereal Mode (Lahiri/Chitrapaksha)
+        swe.set_sid_mode(swe.SIDM_LAHIRI) 
+        
+        # 2. Get the specific Ayanamsa for THIS Julian Day
+        ayanamsa_val = swe.get_ayanamsa_ut(jd_ut)
+        
+        # 3. Calculate tropical longitude
+        res = swe.calc_ut(jd_ut, planet_const, swe.FLG_SWIEPH)
+        lon_trop = res[0][0]
+        
+        # 4. Subtract the DYNAMIC ayanamsa
+        lon_sid = (lon_trop - ayanamsa_val) % 360.0
         return lon_sid
-
     except Exception as e:
-        print(f"Sidereal calc error for {planet_const}: {e}")
+        print(f"Error: {e}")
         return None
+
 
 def _calc_planet_longitude_tropical(jd_ut, planet_const):
     """Tropical longitude using SWIEPH."""
@@ -354,28 +344,15 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
         return None
 
 def _calc_ascendant(jd_ut, lat, lng):
-    """
-    Compute tropical houses via swe.houses, then convert to sidereal.
-    This ensures exact match with fixed Chitrapaksha ayanamsa.
-    """
-    try:
-        # Tropical houses from Sweph (reliable)
-        cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')
-
-        asc_trop = float(ascmc_trop[0]) % 360.0
-        cusps_trop = [float(c) % 360.0 for c in cusps_trop[:12]]
-
-        ay = CHITRAPAKSHA_AYANAMSA_DEG
-
-        # Sidereal = tropical - ayanamsa
-        asc_sid = (asc_trop - ay) % 360.0
-        cusps_sid = [ (c - ay) % 360.0 for c in cusps_trop ]
-
-        return asc_sid, cusps_sid, asc_trop, cusps_trop, ay
-
-    except Exception as e:
-        print("Ascendant calc error:", e)
-        return None, None, None, None, None
+    # Set to Lahiri to match standard 1964 charts
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    ay = swe.get_ayanamsa_ut(jd_ut)
+    
+    cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')
+    asc_sid = (ascmc_trop[0] - ay) % 360.0
+    cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
+    
+    return asc_sid, cusps_sid, ascmc_trop[0], cusps_trop, ay
 
 
 import math
