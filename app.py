@@ -1226,12 +1226,12 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
             # if first_start is not a datetime, fall back to trimming the first ~12 dasha items
             raw_dashas = raw_dashas[:12]
 
-    # --- FIXED: 3-Level Vimshottari Dasha Table (Aligned Date Formats) ---
+    # --- UPDATED: Aligned Dasha Values, Naming, and Format ---
     if raw_dashas:
         story.append(Spacer(1, 0.2*inch))
         story.append(Paragraph("Vimshottari Dasha: Mahadasha > Antardasha > Pratyantardasha", styles['Heading3']))
         
-        # Table Header
+        # Header alignment with your request
         dash_table_data = [["MAHADASA", "ANTARDASHA", "START", "END", "PRATYANTARDASHA"]]
 
         now = datetime.now()
@@ -1241,7 +1241,7 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
                 current_maha_idx = i
                 break
         
-        # Display Current + Next Mahadasha
+        # Process current and next Mahadasha
         relevant_mahas = raw_dashas[current_maha_idx : current_maha_idx + 2]
 
         for maha in relevant_mahas:
@@ -1249,21 +1249,23 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
             for antar in antardashas_list:
                 pratyantars = compute_pratyantardashas(antar)
                 
-                # Format Level 3 list: Changed to %Y-%m-%d to align with Start/End columns
+                # Format Pratyantardasha dates to YYYY-MM-DD for consistency
                 p_lines = []
                 for p in pratyantars:
-                    p_lines.append(f"<b>{p['lord']}</b>: {p['start'].strftime('%Y-%m-%d')}")
+                    # Aligned format: YYYY-MM-DD
+                    p_formatted_date = p['start'].strftime('%Y-%m-%d')
+                    p_lines.append(f"<b>{p['lord']}</b>: {p_formatted_date}")
                 
-                # Column Order: Mahadasha | Antardasha | Start | End | Pratyantardasha List
+                # Table Row: Aligned naming and centered dates
                 dash_table_data.append([
                     Paragraph(f"<b>{maha['lord']}</b>", wrap_style), 
-                    antar['lord'],                                   
-                    antar['start'].strftime('%Y-%m-%d'),             
-                    antar['end'].strftime('%Y-%m-%d'),               
-                    Paragraph("<br/>".join(p_lines), wrap_style)     
+                    antar['lord'],                                   # Antardasha
+                    antar['start'].strftime('%Y-%m-%d'),             # Start Date
+                    antar['end'].strftime('%Y-%m-%d'),               # End Date
+                    Paragraph("<br/>".join(p_lines), wrap_style)     # Pratyantardasha List
                 ])
 
-        # Column Widths
+        # Column widths set to prioritize the detailed Pratyantardasha list
         dt = Table(dash_table_data, colWidths=[0.9*inch, 1.0*inch, 1.0*inch, 1.0*inch, 3.6*inch], repeatRows=1)
 
         dt.setStyle(TableStyle([
@@ -1275,6 +1277,7 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
             ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ]))
         story.append(dt)
+
         story.append(Spacer(1, 0.1*inch))
 
 
