@@ -407,6 +407,38 @@ def get_nakshatra_and_pada(deg360):
     return nak_name, nak_lord, nak_index, pada
 
 
+def compute_pratyantardashas(bhukti_dasha, all_dasha_years=[7,20,6,10,7,18,16,19,17], 
+                             all_dasha_lords=['Ketu','Venus','Sun','Moon','Mars','Rahu','Jupiter','Saturn','Mercury']):
+    """
+    Divides a Bhukti (level 2) into 9 Pratyantardashas (level 3).
+    Formula: (Bhukti Years * Planet Years) / 120
+    """
+    bhukti_years = float(bhukti_dasha['years'])
+    denom = 120.0
+    pratyantars = []
+    cur = bhukti_dasha['start']
+    
+    # Sequence starts from the Bhukti lord
+    try:
+        start_idx = all_dasha_lords.index(bhukti_dasha['lord'])
+    except:
+        start_idx = 0
+
+    for i in range(9):
+        idx = (start_idx + i) % 9
+        p_years = bhukti_years * (all_dasha_years[idx] / denom)
+        end_dt = cur + timedelta(days=365.25 * p_years)
+        pratyantars.append({
+            'lord': all_dasha_lords[idx],
+            'start': cur,
+            'end': end_dt,
+            'years': p_years
+        })
+        cur = end_dt
+    
+    if pratyantars:
+        pratyantars[-1]['end'] = bhukti_dasha['end']
+    return pratyantars
 
 def classify_position_simple(planet, sign_name, deg_in_sign):
     """Simple Friend/Neutral/Deb classification."""
@@ -1197,33 +1229,37 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
 
     if raw_dashas:
         story.append(Spacer(1, 0.05*inch))
-        story.append(Paragraph("Vimshottari Dasha (Mahadasha & Antardasha)", styles['Heading3']))
-        # Table header: show Mahadasha, Start, End, Duration (years), Antardashas (expanded)
-        dash_table_data = [["Mahadasha", "Start", "End", "Duration (yrs)", "Antardasha (lord — start → end (yrs))"]]
+        story.append(Paragraph("Vimshottari Dasha: Mahadasha > Bhukti > Antardasha (Pratyantardasha)", styles['Heading3']))
+        
+        # New Table Header with 3 levels
+        dash_table_data = [["MAHADASA", "BHUKTI", "ANTARDASA (Sub-Sub)", "START DATE", "END DATE"]]
 
-        for maha in raw_dashas:
-            antars = compute_antardashas(maha)
-            antar_lines = []
-            for a in antars:
-                antar_lines.append(f"{a['lord']} — {a['start'].strftime('%Y-%m-%d')} → {a['end'].strftime('%Y-%m-%d')} ({a['years']:.2f} y)")
-            dash_table_data.append([
-                maha['lord'],
-                maha['start'].strftime('%Y-%m-%d'),
-                maha['end'].strftime('%Y-%m-%d'),
-                f"{maha['years']:.2f}",
-                Paragraph("<br/>".join(html.escape(l) for l in antar_lines), wrap_style)
-            ])
+        # Display first 5-6 Mahadashas to keep PDF length manageable
+        for maha in raw_dashas[:6]: 
+            bhuktis = compute_antardashas(maha)
+            for bhukti in bhuktis:
+                # Calculate the 3rd level (Antardasa/Pratyantardasa)
+                pratyantars = compute_pratyantardashas(bhukti)
+                
+                # Format the 3rd level for a single cell to save space
+                p_lines = []
+                for p in pratyantars:
+                    p_lines.append(f"{p['lord']}: {p['start'].strftime('%Y-%m-%d')}")
+                
+                dash_table_data.append([
+                    maha['lord'],
+                    bhukti['lord'],
+                    Paragraph("<br/>".join(p_lines), wrap_style),
+                    bhukti['start'].strftime('%Y-%m-%d'),
+                    bhukti['end'].strftime('%Y-%m-%d')
+                ])
 
-        # column widths - adjust if you need narrower/wider antardasha column
-        dt = Table(dash_table_data, colWidths=[1.0*inch, 0.95*inch, 0.95*inch, 0.8*inch, 3.0*inch], repeatRows=1)
+        dt = Table(dash_table_data, colWidths=[1.1*inch, 1.1*inch, 2.2*inch, 1.1*inch, 1.1*inch], repeatRows=1)
         dt.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
             ('GRID', (0,0), (-1,-1), 0.35, colors.grey),
-            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('FONTSIZE', (0,0), (-1,-1), 7),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('ALIGN', (3,1), (3,-1), 'CENTER'),  # center the duration column
-            ('LEFTPADDING', (0,0), (-1,-1), 4),
-            ('RIGHTPADDING', (0,0), (-1,-1), 4),
         ]))
         story.append(dt)
         story.append(Spacer(1, 0.1*inch))
