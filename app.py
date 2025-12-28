@@ -1233,7 +1233,7 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
         story.append(Paragraph("Vimshottari Dasha: Mahadasha > Bhukti > Antardasha", styles['Heading3']))
         
         # New Table Header with 5 Columns
-        dash_table_data = [["MAHADASA", "BHUKTI", "ANTARDASA (Sub-Sub)", "START", "END"]]
+        dash_table_data = [["MAHADASA", "BHUKTI", "START", "END", "ANTARDASA (Sub-Sub-Period)"]]
 
         # 1. Filter to show only Current and Next Mahadasha to keep PDF readable
         now = datetime.now()
@@ -1256,7 +1256,7 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
                 p_lines = []
                 for p in pratyantars:
                     # Bold Lord Name, then Date
-                    p_lines.append(f"<b>{p['lord']}</b>: {p['start'].strftime('%d/%m/%y')}")
+                    p_lines.append(f"<b>{p['lord']}</b>: {p['start'].strftime('%d/%m/%Y')}")
                 
                 # 4. Add Row to Table
                 dash_table_data.append([
@@ -1268,7 +1268,9 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
                 ])
 
         # 5. Adjust Column Widths to fit the 3rd level
-        dt = Table(dash_table_data, colWidths=[0.9*inch, 0.8*inch, 3.4*inch, 1.2*inch, 1.2*inch], repeatRows=1)
+        #dt = Table(dash_table_data, colWidths=[0.9*inch, 0.8*inch, 3.4*inch, 1.2*inch, 1.2*inch], repeatRows=1)
+        dt = Table(dash_table_data, colWidths=[0.9*inch, 0.8*inch, 1.1*inch, 1.1*inch, 3.6*inch], repeatRows=1)
+
         dt.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
             ('GRID', (0,0), (-1,-1), 0.35, colors.grey),
