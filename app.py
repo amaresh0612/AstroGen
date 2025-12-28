@@ -1232,10 +1232,10 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
         story.append(Spacer(1, 0.2*inch))
         story.append(Paragraph("Vimshottari Dasha: Mahadasha > Bhukti > Antardasha", styles['Heading3']))
         
-        # New Table Header with 3 levels
-        dash_table_data = [["MAHADASA", "BHUKTI", "ANTARDASA (Sub-Sub-Period)", "START", "END"]]
+        # New Table Header with 5 Columns
+        dash_table_data = [["MAHADASA", "BHUKTI", "ANTARDASA (Sub-Sub)", "START", "END"]]
 
-        # 1. Identify current Mahadasha to filter the report for relevance
+        # 1. Filter to show only Current and Next Mahadasha to keep PDF readable
         now = datetime.now()
         current_maha_idx = 0
         for i, m in enumerate(raw_dashas):
@@ -1243,41 +1243,42 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
                 current_maha_idx = i
                 break
         
-        # 2. Limit output to Current and Next 1 Mahadasha (to prevent hundreds of pages)
+        # Displaying Current + Next Mahadasha
         relevant_mahas = raw_dashas[current_maha_idx : current_maha_idx + 2]
 
         for maha in relevant_mahas:
             bhuktis = compute_antardashas(maha)
             for bhukti in bhuktis:
-                # Calculate the 3rd level (Antardasa/Pratyantardasha)
+                # 2. CALL THE MISSING FUNCTION HERE
                 pratyantars = compute_pratyantardashas(bhukti)
                 
-                # Format 3rd level into a compact, bolded string for the cell
+                # 3. Format the 3rd level into a readable string
                 p_lines = []
                 for p in pratyantars:
+                    # Bold Lord Name, then Date
                     p_lines.append(f"<b>{p['lord']}</b>: {p['start'].strftime('%d/%m/%y')}")
                 
-                # Use a Paragraph with <br/> for the 3rd level column
+                # 4. Add Row to Table
                 dash_table_data.append([
                     Paragraph(f"<b>{maha['lord']}</b>", wrap_style),
                     bhukti['lord'],
-                    Paragraph("<br/>".join(p_lines), wrap_style),
+                    Paragraph("<br/>".join(p_lines), wrap_style), # Stacks the sub-periods
                     bhukti['start'].strftime('%Y-%m-%d'),
                     bhukti['end'].strftime('%Y-%m-%d')
                 ])
 
-        # 3. Define wider column widths for the detailed 3rd level
-        # Total width = 7.5 inches (A4 with margins)
+        # 5. Adjust Column Widths to fit the 3rd level
         dt = Table(dash_table_data, colWidths=[0.9*inch, 0.8*inch, 3.4*inch, 1.2*inch, 1.2*inch], repeatRows=1)
         dt.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
             ('GRID', (0,0), (-1,-1), 0.35, colors.grey),
             ('FONTSIZE', (0,0), (-1,-1), 7),
             ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
             ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ]))
         story.append(dt)
+
 
         story.append(Spacer(1, 0.1*inch))
 
