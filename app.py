@@ -1226,16 +1226,14 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
             # if first_start is not a datetime, fall back to trimming the first ~12 dasha items
             raw_dashas = raw_dashas[:12]
 
-
-    # --- UPDATED: 3-Level Vimshottari Dasha Table ---
+    # --- FIXED: 3-Level Vimshottari Dasha Table (Aligned Date Formats) ---
     if raw_dashas:
         story.append(Spacer(1, 0.2*inch))
-        story.append(Paragraph("Vimshottari Dasha: Mahadasha > Bhukti > Antardasha", styles['Heading3']))
+        story.append(Paragraph("Vimshottari Dasha: Mahadasha > Antardasha > Pratyantardasha", styles['Heading3']))
         
-        # New Table Header with 5 Columns
-        dash_table_data = [["MAHADASA", "BHUKTI", "START", "END", "ANTARDASA (Sub-Sub-Period)"]]
+        # Table Header
+        dash_table_data = [["MAHADASA", "ANTARDASHA", "START", "END", "PRATYANTARDASHA"]]
 
-        # 1. Filter to show only Current and Next Mahadasha to keep PDF readable
         now = datetime.now()
         current_maha_idx = 0
         for i, m in enumerate(raw_dashas):
@@ -1243,33 +1241,30 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
                 current_maha_idx = i
                 break
         
-        # Displaying Current + Next Mahadasha
+        # Display Current + Next Mahadasha
         relevant_mahas = raw_dashas[current_maha_idx : current_maha_idx + 2]
 
         for maha in relevant_mahas:
-            bhuktis = compute_antardashas(maha)
-            for bhukti in bhuktis:
-                # 2. CALL THE MISSING FUNCTION HERE
-                pratyantars = compute_pratyantardashas(bhukti)
+            antardashas_list = compute_antardashas(maha)
+            for antar in antardashas_list:
+                pratyantars = compute_pratyantardashas(antar)
                 
-                # 3. Format the 3rd level into a readable string
+                # Format Level 3 list: Changed to %Y-%m-%d to align with Start/End columns
                 p_lines = []
                 for p in pratyantars:
-                    # Bold Lord Name, then Date
-                    p_lines.append(f"<b>{p['lord']}</b>: {p['start'].strftime('%d/%m/%Y')}")
+                    p_lines.append(f"<b>{p['lord']}</b>: {p['start'].strftime('%Y-%m-%d')}")
                 
-                # 4. Add Row to Table
+                # Column Order: Mahadasha | Antardasha | Start | End | Pratyantardasha List
                 dash_table_data.append([
-                    Paragraph(f"<b>{maha['lord']}</b>", wrap_style),
-                    bhukti['lord'],
-                    Paragraph("<br/>".join(p_lines), wrap_style), # Stacks the sub-periods
-                    bhukti['start'].strftime('%Y-%m-%d'),
-                    bhukti['end'].strftime('%Y-%m-%d')
+                    Paragraph(f"<b>{maha['lord']}</b>", wrap_style), 
+                    antar['lord'],                                   
+                    antar['start'].strftime('%Y-%m-%d'),             
+                    antar['end'].strftime('%Y-%m-%d'),               
+                    Paragraph("<br/>".join(p_lines), wrap_style)     
                 ])
 
-        # 5. Adjust Column Widths to fit the 3rd level
-        #dt = Table(dash_table_data, colWidths=[0.9*inch, 0.8*inch, 3.4*inch, 1.2*inch, 1.2*inch], repeatRows=1)
-        dt = Table(dash_table_data, colWidths=[0.9*inch, 0.8*inch, 1.1*inch, 1.1*inch, 3.6*inch], repeatRows=1)
+        # Column Widths
+        dt = Table(dash_table_data, colWidths=[0.9*inch, 1.0*inch, 1.0*inch, 1.0*inch, 3.6*inch], repeatRows=1)
 
         dt.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
@@ -1280,9 +1275,8 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
             ('BOTTOMPADDING', (0,0), (-1,-1), 6),
         ]))
         story.append(dt)
-
-
         story.append(Spacer(1, 0.1*inch))
+
 
 
     doc.build(story)
