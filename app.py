@@ -171,7 +171,7 @@ if "birth_details" not in st.session_state:
     st.session_state.birth_details = None
 
 
-KP_MODE = "modern"   # options: "modern" | "legacy"
+KP_MODE = "legacy"   # options: "modern" | "legacy"
 
 # --- Global sidereal mode (Lahiri / Chitrapaksha) ---
 swe.set_sid_mode(swe.SIDM_LAHIRI)
