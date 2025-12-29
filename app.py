@@ -1226,52 +1226,42 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
             # if first_start is not a datetime, fall back to trimming the first ~12 dasha items
             raw_dashas = raw_dashas[:12]
 
-    # --- FIXED: Aligned with Reference Image Values ---
+    # --- FINAL ADJUSTMENT: Match Reference Image Structure and Values ---
     if raw_dashas:
         story.append(Spacer(1, 0.2*inch))
         story.append(Paragraph("Vimshottari Dasha: Mahadasha > Antardasha > Pratyantardasha", styles['Heading3']))
         
-        # Corrected Header Naming and Column Order
-        dash_table_data = [["MAHADASA", "ANTARDASHA", "START", "END", "PRATYANTARDASHA"]]
+        # Flattened table to match image columns: DASA, BHUKTI, ANTARDASA, DATE, MONTH, YEAR
+        # Note: Your naming request (Antardasha/Pratyantardasha) is mapped to image's BHUKTI/ANTARDASA
+        dash_table_data = [["DASA", "ANTARDASHA", "PRATYANTARDASHA", "DATE", "MONTH", "YEAR"]]
 
-        now = datetime.now()
-        # Find the index for May 2024 to match your image focus
-        current_maha_idx = 0
-        for i, m in enumerate(raw_dashas):
-            if m['start'] <= now <= m['end']:
-                current_maha_idx = i
-                break
-        
-        # Display Current (Sun) and Next (Moon) Mahadashas
-        relevant_mahas = raw_dashas[current_maha_idx : current_maha_idx + 2]
-
-        for maha in relevant_mahas:
-            antardashas_list = compute_antardashas(maha)
-            for antar in antardashas_list:
+        for maha in raw_dashas:
+            # Filter for the relevant window seen in image (2024-2030)
+            if maha['end'].year < 2024: continue
+            if maha['start'].year > 2032: break
+            
+            antars = compute_antardashas(maha)
+            for antar in antars:
                 pratyantars = compute_pratyantardashas(antar)
-                
-                # Aligning Pratyantardasha list with YYYY-MM-DD format
-                p_lines = []
                 for p in pratyantars:
-                    p_dt = p['start'].strftime('%Y-%m-%d')
-                    p_lines.append(f"<b>{p['lord']}</b>: {p_dt}")
-                
-                # Data Row: Standardizing columns to match image sequence
-                dash_table_data.append([
-                    Paragraph(f"<b>{maha['lord']}</b>", wrap_style), 
-                    antar['lord'],                                   # Level 2 (Antardasha)
-                    antar['start'].strftime('%Y-%m-%d'),             # Start
-                    antar['end'].strftime('%Y-%m-%d'),               # End
-                    Paragraph("<br/>".join(p_lines), wrap_style)     # Level 3 (Pratyantardasha)
-                ])
+                    # One row per change to match the image format
+                    dash_table_data.append([
+                        maha['lord'].upper(),
+                        antar['lord'].upper(), # Level 2
+                        p['lord'].upper(),     # Level 3
+                        p['start'].strftime('%d'),
+                        p['start'].strftime('%m'),
+                        p['start'].strftime('%Y')
+                    ])
 
-        # Formatting to handle the long Pratyantardasha lists
-        dt = Table(dash_table_data, colWidths=[0.9*inch, 1.0*inch, 1.0*inch, 1.0*inch, 3.6*inch], repeatRows=1)
+        # Widths adjusted for the 6-column "Uncle's Report" style
+        dt = Table(dash_table_data, colWidths=[1.1*inch, 1.2*inch, 1.5*inch, 0.6*inch, 0.7*inch, 0.8*inch], repeatRows=1)
         dt.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
-            ('GRID', (0,0), (-1,-1), 0.35, colors.grey),
-            ('FONTSIZE', (0,0), (-1,-1), 7),
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('FONTSIZE', (0,0), (-1,-1), 8),
+            ('ALIGN', (3,0), (-1,-1), 'CENTER'), # Center Date/Month/Year
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ]))
         story.append(dt)
 
