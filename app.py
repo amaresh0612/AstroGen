@@ -170,18 +170,19 @@ if "user_id" not in st.session_state:
 if "birth_details" not in st.session_state:
     st.session_state.birth_details = None
 
-
+# --- Global sidereal mode (Lahiri / Chitrapaksha) ---
+swe.set_sid_mode(swe.SIDM_LAHIRI)
 #CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
-try:
+#try:
     # Preferred: set a USER sidereal mode with the fixed Chitrapaksha value
-    swe.set_sid_mode(swe.SIDM_USER, CHITRAPAKSHA_AYANAMSA_DEG)
-except Exception:
+   # swe.set_sid_mode(swe.SIDM_USER, CHITRAPAKSHA_AYANAMSA_DEG)
+#except Exception:
     # Fallback to KRISHNAMURTI if USER not supported
-    try:
-        swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
-    except Exception:
+   # try:
+     #   swe.set_sid_mode(swe.SIDM_KRISHNAMURTI)
+    #except Exception:
         # Last-resort: leave default but warn
-        print("Warning: unable to set user/krishnamurti sidereal mode; results may vary.")
+       # print("Warning: unable to set user/krishnamurti sidereal mode; results may vary.")
 # ---------- Config ----------
 #CHITRAPAKSHA_AYANAMSA_DEG = 24.0166666667 # 24°01'00" - Chitrapaksha standard
 
@@ -330,7 +331,7 @@ def get_coordinates(place):
 def _calc_planet_longitude_sidereal(jd_ut, planet_const):
     try:
         # 1. Set the correct Sidereal Mode (Lahiri/Chitrapaksha)
-        swe.set_sid_mode(swe.SIDM_LAHIRI) 
+        #swe.set_sid_mode(swe.SIDM_LAHIRI) 
         
         # 2. Get the specific Ayanamsa for THIS Julian Day
         ayanamsa_val = swe.get_ayanamsa_ut(jd_ut)
@@ -359,7 +360,7 @@ def _calc_planet_longitude_tropical(jd_ut, planet_const):
 
 def _calc_ascendant(jd_ut, lat, lng):
     # Set to Lahiri to match standard 1964 charts
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    #swe.set_sid_mode(swe.SIDM_LAHIRI)
     ay = swe.get_ayanamsa_ut(jd_ut)
     
     cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')
@@ -607,6 +608,10 @@ def compute_antardashas(maha_dasha, all_dasha_years = [7,20,6,10,7,18,16,19,17],
     return antars
 
 
+def kp_round(deg):
+    """KP legacy rounding: nearest arc-minute."""
+    return round(deg * 60.0) / 60.0
+
 
 def get_current_dasha(dashas, current_date):
     """Get current and upcoming dasha."""
@@ -672,10 +677,11 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
     
     # CORRECTION: Add 10.5 seconds to match reference IMAGE
     # Reference software appears to round/calculate time slightly differently
-    from datetime import timedelta
-    corrected_tob = (datetime.combine(dob_date, tob_time) + timedelta(seconds=10.5)).time()
+    #from datetime import timedelta
+    #corrected_tob = (datetime.combine(dob_date, tob_time) + timedelta(seconds=10.5)).time()
     
-    local_dt = datetime.combine(dob_date, corrected_tob)
+    #local_dt = datetime.combine(dob_date, corrected_tob)
+    local_dt = datetime.combine(dob_date, tob_time)
     tf = TimezoneFinder()
     tz_name = tf.timezone_at(lat=lat, lng=lng)
     
