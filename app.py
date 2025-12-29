@@ -172,7 +172,7 @@ if "birth_details" not in st.session_state:
 
 
 KP_MODE = "legacy"   # options: "modern" | "legacy"
-
+LEGACY_KP_DASHA = True
 # --- Global sidereal mode (Lahiri / Chitrapaksha) ---
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 #CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
@@ -447,7 +447,13 @@ def compute_pratyantardashas(bhukti_dasha, all_dasha_years=[7,20,6,10,7,18,16,19
     for i in range(9):
         idx = (start_idx + i) % 9
         p_years = bhukti_years * (all_dasha_years[idx] / denom)
-        end_dt = cur + timedelta(days=365.25 * p_years)
+        #end_dt = cur + timedelta(days=365.25 * p_years)
+
+        if LEGACY_KP_DASHA:
+            end_dt = cur + timedelta(days=_legacy_days(p_years))
+        else:
+            end_dt = cur + timedelta(days=365.25 * p_years)
+      
         pratyantars.append({
             'lord': all_dasha_lords[idx],
             'start': cur,
@@ -456,7 +462,7 @@ def compute_pratyantardashas(bhukti_dasha, all_dasha_years=[7,20,6,10,7,18,16,19
         })
         cur = end_dt
     
-    if pratyantars:
+    if pratyantars and not LEGACY_KP_DASHA:
         pratyantars[-1]['end'] = bhukti_dasha['end']
     return pratyantars
 
@@ -574,6 +580,14 @@ def calculate_vimshottari_dasha(moon_degree: float, birth_dt: datetime):
 
     return dashas
 
+def _legacy_days(years: float) -> int:
+    """
+    Old KP behavior:
+    Convert years → days using 365
+    DROP fractional days (no rounding)
+    """
+    return int(years * 365)
+
 
 def compute_antardashas(maha_dasha, all_dasha_years = [7,20,6,10,7,18,16,19,17],
                         all_dasha_lords = ['Ketu','Venus','Sun','Moon','Mars','Rahu','Jupiter','Saturn','Mercury']):
@@ -598,7 +612,12 @@ def compute_antardashas(maha_dasha, all_dasha_years = [7,20,6,10,7,18,16,19,17],
     for i in range(9):
         idx = (start_idx + i) % 9
         antar_years = maha_years * (all_dasha_years[idx] / denom)
-        end_dt = cur + timedelta(days=365.25 * antar_years)
+        #end_dt = cur + timedelta(days=365.25 * antar_years)
+
+        if LEGACY_KP_DASHA:
+            end_dt = cur + timedelta(days=_legacy_days(antar_years))
+        else:
+            end_dt = cur + timedelta(days=365.25 * antar_years)
         antars.append({
             'lord': all_dasha_lords[idx],
             'start': cur,
@@ -608,7 +627,7 @@ def compute_antardashas(maha_dasha, all_dasha_years = [7,20,6,10,7,18,16,19,17],
         cur = end_dt
 
     # Guard: ensure last antar end aligns with maha end (adjust tiny float drift)
-    if antars:
+    if antars and not LEGACY_KP_DASHA:
         antars[-1]['end'] = maha_dasha['end']
     return antars
 
