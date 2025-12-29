@@ -284,34 +284,48 @@ def _planet_abbr(name: str) -> str:
     return mapping.get(name, name[:3].upper())
 
 def get_coordinates(place):
-    # QUICK FIX: handle common Indian cities locally
+    # LOCAL LOOKUP: Precise coordinates for requested cities
     fallback_places = {
         "Bhubaneswar": (20.2961, 85.8245),
         "Bhubaneshwar": (20.2961, 85.8245),
         "Bhubaneswar, Odisha": (20.2961, 85.8245),
+        "Cuttack": (20.4625, 85.8830),
+        "Cuttack, Odisha": (20.4625, 85.8830),
+        "Jamshedpur": (22.8046, 86.2029),
+        "Jamshedpur, Jharkhand": (22.8046, 86.2029),
+        "Brajrajnagar": (21.8211, 83.9189),
+        "Brajrajnagar, Odisha": (21.8211, 83.9189),
         "Delhi": (28.6139, 77.2090),
         "Mumbai": (19.0760, 72.8777),
-        "Hyderabad": (17.3850, 78.4867),
-        "Chennai": (13.0827, 80.2707),
-        "Bangalore": (12.9716, 77.5946),
         "Kolkata": (22.5726, 88.3639)
     }
 
-    key = place.strip()
-    if key in fallback_places:
-        return fallback_places[key]
+    # 1. Clean the input
+    user_input = place.strip()
+    
+    # 2. Check for exact match
+    if user_input in fallback_places:
+        return fallback_places[user_input]
+    
+    # 3. Check for partial match (if user types "Cuttack India", it finds "Cuttack")
+    for city_name, coords in fallback_places.items():
+        if city_name.lower() in user_input.lower():
+            return coords
 
-    # Otherwise try geopy but catch failure
+    # 4. Try external Geocoding if not in local list
     try:
-        g = Nominatim(user_agent="astrogen-app")  # MUST have user-agent
-        loc = g.geocode(place, timeout=10)
+        g = Nominatim(user_agent="astrogen-app")
+        loc = g.geocode(user_input, timeout=10)
         if loc:
             return loc.latitude, loc.longitude
     except:
         pass
 
-    # If still failing:
-    raise ValueError(f"Unable to geocode location: {place}")
+    # 5. Final Guard: If all else fails, return None to trigger an error 
+    # rather than calculating for the wrong city.
+    return None
+
+
 
 def _calc_planet_longitude_sidereal(jd_ut, planet_const):
     try:
