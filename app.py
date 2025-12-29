@@ -170,6 +170,9 @@ if "user_id" not in st.session_state:
 if "birth_details" not in st.session_state:
     st.session_state.birth_details = None
 
+
+KP_MODE = "modern"   # options: "modern" | "legacy"
+
 # --- Global sidereal mode (Lahiri / Chitrapaksha) ---
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 #CHITRAPAKSHA_AYANAMSA_DEG = 24.0002777778
@@ -341,7 +344,8 @@ def _calc_planet_longitude_sidereal(jd_ut, planet_const):
         lon_trop = res[0][0]
         
         # 4. Subtract the DYNAMIC ayanamsa
-        lon_sid = (lon_trop - ayanamsa_val) % 360.0
+        #lon_sid = (lon_trop - ayanamsa_val) % 360.0
+        lon_sid = kp_round((lon_trop - ayanamsa_val) % 360.0)
         return lon_sid
     except Exception as e:
         print(f"Error: {e}")
@@ -364,9 +368,10 @@ def _calc_ascendant(jd_ut, lat, lng):
     ay = swe.get_ayanamsa_ut(jd_ut)
     
     cusps_trop, ascmc_trop = swe.houses(jd_ut, lat, lng, b'P')
-    asc_sid = (ascmc_trop[0] - ay) % 360.0
-    cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
-    
+    #asc_sid = (ascmc_trop[0] - ay) % 360.0
+    asc_sid = kp_round((ascmc_trop[0] - ay) % 360.0)
+    #cusps_sid = [(c - ay) % 360.0 for c in cusps_trop]
+    cusps_sid = [kp_round((c - ay) % 360.0) for c in cusps_trop]
     return asc_sid, cusps_sid, ascmc_trop[0], cusps_trop, ay
 
 
@@ -609,8 +614,14 @@ def compute_antardashas(maha_dasha, all_dasha_years = [7,20,6,10,7,18,16,19,17],
 
 
 def kp_round(deg):
-    """KP legacy rounding: nearest arc-minute."""
-    return round(deg * 60.0) / 60.0
+    """
+    KP rounding:
+    - modern  → no rounding
+    - legacy  → round to nearest arc-minute
+    """
+    if KP_MODE == "legacy":
+        return round(deg * 60.0) / 60.0
+    return deg
 
 
 def get_current_dasha(dashas, current_date):
