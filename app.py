@@ -2,6 +2,7 @@
 import streamlit as st
 from openai import OpenAI
 import os, uuid, io
+import json
 from datetime import datetime, timedelta
 import swisseph as swe
 from geopy.geocoders import Nominatim
@@ -335,9 +336,75 @@ def get_coordinates(place):
     except:
         pass
 
-    # 5. Final Guard: If all else fails, return None to trigger an error 
+    # 5. AI fallback: if free geocoding fails, ask ChatGPT for an approximate match (India only)
+    coords_ai = _ai_geocode_india(user_input)
+    if coords_ai:
+        return coords_ai
+
+    # 6. Final Guard: If all else fails, return None to trigger an error
     # rather than calculating for the wrong city.
     return None
+
+
+@st.cache_data(show_spinner=False, ttl=60 * 60 * 24)
+def _ai_geocode_india(place_str: str):
+    """
+    AI fallback to infer coordinates for an India place string.
+    Returns (lat, lng) or None.
+    """
+    try:
+        q = (place_str or "").strip()
+        if not q:
+            return None
+
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a geocoding assistant for INDIA only. "
+                        "Given a place description (city/town/village, district, state), "
+                        "return an approximate latitude/longitude for the place center. "
+                        "Return ONLY valid JSON with keys: lat, lng, confidence. "
+                        "confidence must be a number from 0 to 1. "
+                        "If you cannot determine it, return lat/lng as null and confidence as 0."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps({"place": q, "country": "India"}),
+                },
+            ],
+            max_tokens=120,
+            temperature=0.1,
+        )
+
+        text = (resp.choices[0].message.content or "").strip()
+        if text.startswith("```"):
+            # strip code fences if present
+            text = text.strip().strip("`").replace("json", "", 1).strip()
+
+        data = json.loads(text)
+        lat = data.get("lat")
+        lng = data.get("lng")
+        conf = float(data.get("confidence", 0) or 0)
+
+        if lat is None or lng is None:
+            return None
+        lat = float(lat)
+        lng = float(lng)
+
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            return None
+        if conf < 0.35:
+            return None
+
+        return lat, lng
+    except Exception:
+        return None
+
+
 def _compute_jd_from_local_using_lat_lng(dob_date, tob_time, lat, lng):
     """
     Convert local birth time to Julian Day (UT) using supplied coordinates.
@@ -791,9 +858,10 @@ def calculate_comprehensive_chart(dob, tob, place):
         if jd is None:
             return None, "Invalid manual latitude/longitude."
     else:
-        lat, lng = get_coordinates(place)
-        if lat is None:
+        coords = get_coordinates(place)
+        if not coords:
             return None, "Could not geocode place. Try adding ', India' or enter latitude/longitude manually."
+        lat, lng = coords
         jd, tz_name, lat, lng = _compute_jd_from_local_using_place(dob, tob, place)
     if jd is None:
         return None, "Could not compute JD / timezone."
@@ -1138,7 +1206,85 @@ def numerology_life_path(dob):
         s = sum(int(d) for d in str(s))
     return s
 
-def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
+
+def _build_ai_pdf_context(chart_data: dict, birth_data: dict) -> str:
+    """Build a compact context string for the AI PDF summary (kept short to reduce tokens)."""
+    try:
+        planets = chart_data.get("planets", {}) or {}
+        houses = chart_data.get("houses", {}) or {}
+        dashas = chart_data.get("dashas", {}) or {}
+        csl = chart_data.get("cuspal_sublords", {}) or {}
+
+        def p(name):
+            d = planets.get(name, {}) or {}
+            return f"{name}:{d.get('sign','?')} {d.get('degree','?')} Nak:{d.get('nakshatra','?')}/{d.get('nakshatra_lord','?')} Sub:{d.get('sublord','?')} H:{d.get('house_whole', d.get('house_cuspal','?'))}"
+
+        def h(key):
+            d = houses.get(key, {}) or {}
+            return f"{key}:{d.get('sign','?')} {d.get('degree','?')} CSL:{d.get('sublord','?')}"
+
+        cur = (dashas.get("current") or {})
+        up = (dashas.get("upcoming") or {})
+
+        lines = [
+            f"DOB:{birth_data.get('dob','?')} TOB:{birth_data.get('tob_display', birth_data.get('tob','?'))} Place:{birth_data.get('place','?')}",
+            f"TZ:{(chart_data.get('location') or {}).get('tz_name','?')} LatLng:{(chart_data.get('location') or {}).get('lat','?')},{(chart_data.get('location') or {}).get('lng','?')}",
+            f"Ayanamsa:{chart_data.get('ayanamsa','?')} Asc:{chart_data.get('asc_degree','?')}",
+            f"{h('1st (Lagna)')}",
+            "Planets: " + " | ".join([p(x) for x in ("Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu") if x in planets]),
+            "CSL key houses: " + ", ".join([f"{k}:{csl.get(str(k),'?')}" for k in (2, 6, 7, 10, 11)]),
+            f"DashaNow:{cur.get('lord','?')} {cur.get('start','?')}→{cur.get('end','?')} | Next:{up.get('lord','?')} {up.get('start','?')}",
+        ]
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _ai_pdf_summary(chart_data: dict, birth_data: dict) -> str | None:
+    """
+    Returns a short, fixed-structure summary for PDF or None on failure.
+    Must never block PDF generation if OpenAI fails.
+    """
+    try:
+        context = _build_ai_pdf_context(chart_data, birth_data)
+        if not context.strip():
+            return None
+
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert KP astrologer. Write concise, practical guidance. "
+                        "No medical/financial/legal claims. No disclaimers. "
+                        "Output MUST be plain text with EXACT line counts per section.\n\n"
+                        "Format:\n"
+                        "PERSONA (10 lines)\n"
+                        "- ... (10 lines)\n"
+                        "CAREER (4 lines)\n"
+                        "- ... (4 lines)\n"
+                        "RELATIONSHIP & MARRIAGE (5 lines)\n"
+                        "- ... (5 lines)\n"
+                        "FINANCE (4 lines)\n"
+                        "- ... (4 lines)\n\n"
+                        "Each line must be a single bullet starting with '- '. "
+                        "Use the provided context: asc, moon, CSL key houses (2,6,7,10,11), "
+                        "planet houses, and current/upcoming dasha for timing. Keep it specific."
+                    ),
+                },
+                {"role": "user", "content": context},
+            ],
+            max_tokens=300,
+            temperature=0.5,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return text if text else None
+    except Exception:
+        return None
+
+
+def generate_pdf_report(birth_data, chart_data, name=None, numerology=None, include_ai_summary: bool = False):
     """Generate PDF report."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=0.45*inch, rightMargin=0.45*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
@@ -1151,6 +1297,23 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None):
     
     story.append(Paragraph("🙏 KP ASTROLOGY CHART REPORT", title_style))
     story.append(Spacer(1, 0.1*inch))
+
+    # AI Summary (optional). If model/quota fails, continue without it.
+    if include_ai_summary:
+        ai_text = _ai_pdf_summary(chart_data, birth_data)
+        if ai_text:
+            story.append(Paragraph("AI Summary (Concise)", styles["Heading3"]))
+            for line in ai_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                # Keep headings readable; bullets as normal text
+                if line.upper() in ("PERSONA (10 LINES)", "CAREER (4 LINES)", "RELATIONSHIP & MARRIAGE (5 LINES)", "FINANCE (4 LINES)"):
+                    story.append(Spacer(1, 0.05 * inch))
+                    story.append(Paragraph(line, styles["Heading4"]))
+                else:
+                    story.append(Paragraph(html.escape(line), styles["Normal"]))
+            story.append(Spacer(1, 0.15*inch))
     
     # Birth details table
     birth_table_data = [
@@ -1768,7 +1931,8 @@ pdf_buffer = generate_pdf_report(
     {'dob':dob,'tob':tob,'place':place,'gender':gender,'tob_display':f"{hour_12}:{minute} {am_pm}"}, 
     chart_result, 
     name=name_val, 
-    numerology=numerology
+    numerology=numerology,
+    include_ai_summary=st.toggle("Include AI summary in PDF (uses OpenAI)", value=False)
 )
 st.download_button(
     "📥 Download PDF Report", 
@@ -1875,6 +2039,117 @@ Please provide a detailed KP analysis using the above data.
         return response.choices[0].message.content.strip()
     except Exception as e:
         return f"⚠️ Error in get_ai_reading: {str(e)}"
+
+# ----------------- Organization / Team Analysis (new feature) -----------------
+def _org_ai_report(org_payload: dict) -> str | None:
+    """
+    Returns an AI-generated report for an organization/team based on foundation details.
+    Returns None on failure (must not break the app).
+    """
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Yogi Baba, an astrologer who can do foundation-chart style readings for organizations "
+                        "(political parties, football clubs, sports teams, companies). "
+                        "Be practical, concise, and non-inflammatory. "
+                        "Do NOT provide targeted persuasion, endorsements, or instructions for wrongdoing. "
+                        "No medical/legal/financial guarantees.\n\n"
+                        "Return plain text with this structure:\n"
+                        "OVERVIEW (6 bullets)\n"
+                        "STRENGTHS (5 bullets)\n"
+                        "RISKS (5 bullets)\n"
+                        "NEXT 12 MONTHS (6 bullets)\n"
+                        "RECOMMENDATIONS (6 bullets)\n\n"
+                        "Each bullet must start with '- ' and be one line."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(org_payload, ensure_ascii=False),
+                },
+            ],
+            max_tokens=420,
+            temperature=0.6,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return text if text else None
+    except Exception:
+        return None
+
+
+def generate_org_pdf_report(org_payload: dict, ai_text: str | None) -> io.BytesIO:
+    """Generate a PDF report for an organization/team analysis (AI optional)."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=0.45 * inch,
+        rightMargin=0.45 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "OrgTitle",
+        parent=styles["Heading1"],
+        fontSize=16,
+        textColor=colors.HexColor("#8B4513"),
+        alignment=TA_CENTER,
+        spaceAfter=12,
+    )
+
+    story.append(Paragraph("🏛️ ORGANIZATION / TEAM FORECAST REPORT", title_style))
+    story.append(Spacer(1, 0.1 * inch))
+
+    # Input summary table
+    rows = [
+        ["Organization / Team:", org_payload.get("name", "")],
+        ["Category:", org_payload.get("category", "")],
+        ["Foundation Date:", org_payload.get("foundation_date", "")],
+        ["Foundation Time:", org_payload.get("foundation_time", "")],
+        ["Foundation Place:", org_payload.get("foundation_place", "")],
+        ["Coordinates:", org_payload.get("coordinates", "")],
+        ["Notes:", org_payload.get("notes", "")],
+    ]
+    t = Table(rows, colWidths=[1.7 * inch, 4.3 * inch])
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#FFF8DC")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ]
+        )
+    )
+    story.append(t)
+    story.append(Spacer(1, 0.15 * inch))
+
+    # AI section (optional)
+    story.append(Paragraph("AI Forecast", styles["Heading3"]))
+    if ai_text:
+        for line in ai_text.splitlines():
+            line = (line or "").strip()
+            if not line:
+                continue
+            story.append(Paragraph(html.escape(line), styles["Normal"]))
+    else:
+        story.append(
+            Paragraph(
+                "AI forecast was skipped (OpenAI unavailable / quota exceeded).",
+                styles["Normal"],
+            )
+        )
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 # ----------------- AI Readings UI -----------------
 st.markdown("---")
@@ -1985,3 +2260,71 @@ Upcoming Dasha: {upcoming_dasha}
                     reply = f"⚠️ Error: {e}"
                 st.markdown(reply)
                 st.session_state.messages.append({"role": "assistant", "content": reply})
+
+
+# ----------------- Organization / Team Analysis UI (new, non-breaking) -----------------
+st.markdown("---")
+st.markdown("### 🏛️ Organization / Team Analysis (New)")
+st.caption("Use this if you want predictions for a political party, football club, or any organization based on its foundation details.")
+
+with st.expander("Open organization analysis", expanded=False):
+    with st.form("org_form", clear_on_submit=False):
+        c1, c2 = st.columns([1.2, 1], gap="medium")
+        with c1:
+            org_name = st.text_input("Organization / Team name", value="", placeholder="e.g., XYZ Football Club")
+            org_category = st.selectbox("Category", ["Political party", "Sports team / club", "Company / Startup", "Other"])
+            org_place = st.text_input("Foundation place", value="", placeholder="e.g., Hyderabad, Telangana")
+            org_notes = st.text_area("Context / notes (optional)", value="", height=90, placeholder="e.g., ideology, league, goals, leadership, current challenges")
+        with c2:
+            org_date = st.date_input("Foundation date", value=datetime(2000, 1, 1).date())
+            org_time = st.time_input("Foundation time (optional)", value=datetime.strptime("12:00", "%H:%M").time())
+            with st.expander("Advanced (optional): manual coordinates", expanded=False):
+                org_lat = st.text_input("Latitude", value="", placeholder="e.g., 17.3850")
+                org_lng = st.text_input("Longitude", value="", placeholder="e.g., 78.4867")
+
+            include_ai = st.toggle("Include AI forecast (uses OpenAI)", value=True)
+            org_submit = st.form_submit_button("Generate organization forecast PDF")
+
+    if org_submit:
+        # Validate minimal inputs (do not block if optional fields missing)
+        if not org_name.strip():
+            st.error("Please enter the organization/team name.")
+            st.stop()
+
+        # Coordinates (optional)
+        coords_str = ""
+        lat_val = None
+        lng_val = None
+        if (org_lat or "").strip() or (org_lng or "").strip():
+            try:
+                lat_val = float((org_lat or "").strip())
+                lng_val = float((org_lng or "").strip())
+                if not (-90.0 <= lat_val <= 90.0 and -180.0 <= lng_val <= 180.0):
+                    raise ValueError("range")
+                coords_str = f"{lat_val:.4f}, {lng_val:.4f}"
+            except Exception:
+                st.error("Invalid manual latitude/longitude. Leave both blank or enter valid numbers.")
+                st.stop()
+
+        # Build payload (keep compact for token savings)
+        payload = {
+            "name": org_name.strip(),
+            "category": org_category,
+            "foundation_date": org_date.strftime("%Y-%m-%d"),
+            "foundation_time": org_time.strftime("%H:%M"),
+            "foundation_place": org_place.strip(),
+            "coordinates": coords_str,
+            "notes": (org_notes or "").strip()[:1200],
+        }
+
+        with st.spinner("Generating organization report..."):
+            ai_text = _org_ai_report(payload) if include_ai else None
+            pdf_buf = generate_org_pdf_report(payload, ai_text)
+
+        st.success("✅ Organization report ready")
+        st.download_button(
+            "📥 Download organization forecast PDF",
+            data=pdf_buf.getvalue(),
+            file_name=f"Org_Forecast_{org_name.strip().replace(' ','_')}_{uuid.uuid4().hex[:6]}.pdf",
+            mime="application/pdf",
+        )
