@@ -318,8 +318,18 @@ def get_coordinates(place):
 
     # 4. Try external Geocoding if not in local list
     try:
+        # India-only app: constrain lookup to India for higher hit-rate and fewer wrong matches.
+        # Also normalize query to include "India" if user didn't provide a country.
+        q = user_input
+        if "india" not in q.lower():
+            q = f"{q}, India"
+
         g = Nominatim(user_agent="astrogen-app")
-        loc = g.geocode(user_input, timeout=10)
+        loc = g.geocode(q, timeout=10, country_codes="in", addressdetails=False)
+
+        # If India-constrained search fails, try a more permissive query (still free OSM/Nominatim)
+        if not loc:
+            loc = g.geocode(user_input, timeout=10, addressdetails=False)
         if loc:
             return loc.latitude, loc.longitude
     except:
@@ -328,6 +338,42 @@ def get_coordinates(place):
     # 5. Final Guard: If all else fails, return None to trigger an error 
     # rather than calculating for the wrong city.
     return None
+def _compute_jd_from_local_using_lat_lng(dob_date, tob_time, lat, lng):
+    """
+    Convert local birth time to Julian Day (UT) using supplied coordinates.
+    This bypasses geocoding and is used when the user manually provides lat/lng.
+    """
+    try:
+        lat = float(lat)
+        lng = float(lng)
+    except Exception:
+        return None, None, None, None
+
+    local_dt = datetime.combine(dob_date, tob_time)
+    tf = TimezoneFinder()
+    tz_name = tf.timezone_at(lat=lat, lng=lng)
+
+    if not tz_name:
+        tz_name = "UTC"
+        utc_dt = local_dt
+    else:
+        tz = pytz.timezone(tz_name)
+        if local_dt.tzinfo is None:
+            local_dt = tz.localize(local_dt)
+        utc_dt = local_dt.astimezone(pytz.utc)
+
+    year, month, day = utc_dt.year, utc_dt.month, utc_dt.day
+    hour_decimal = (
+        utc_dt.hour
+        + utc_dt.minute / 60.0
+        + utc_dt.second / 3600.0
+        + utc_dt.microsecond / 3_600_000_000.0
+    )
+    jd_ut = swe.julday(year, month, day, hour_decimal)
+
+    return jd_ut, tz_name, lat, lng
+
+
 
 
 
@@ -735,11 +781,20 @@ def _compute_jd_from_local_using_place(dob_date, tob_time, place_str):
 
 def calculate_comprehensive_chart(dob, tob, place):
     """Calculate complete KP chart."""
-    lat, lng = get_coordinates(place)
-    if lat is None:
-        return None, "Could not geocode place."
-    
-    jd, tz_name, lat, lng = _compute_jd_from_local_using_place(dob, tob, place)
+    # Optional manual coordinates override (UI provides these fields).
+    _bd = st.session_state.get("birth_details") or {}
+    lat_in = _bd.get("lat")
+    lng_in = _bd.get("lng")
+
+    if lat_in not in (None, "") and lng_in not in (None, ""):
+        jd, tz_name, lat, lng = _compute_jd_from_local_using_lat_lng(dob, tob, lat_in, lng_in)
+        if jd is None:
+            return None, "Invalid manual latitude/longitude."
+    else:
+        lat, lng = get_coordinates(place)
+        if lat is None:
+            return None, "Could not geocode place. Try adding ', India' or enter latitude/longitude manually."
+        jd, tz_name, lat, lng = _compute_jd_from_local_using_place(dob, tob, place)
     if jd is None:
         return None, "Could not compute JD / timezone."
     
@@ -1336,6 +1391,10 @@ with st.form("birth_form", clear_on_submit=False):
                                 help="Enter birth date in DD/MM/YYYY")
         place = st.text_input("Place of Birth", value="", placeholder="Mumbai, India",
                               help="City, Country (for geocoding)")
+        with st.expander("Advanced (optional): manual coordinates", expanded=False):
+            st.caption("If place lookup fails, enter coordinates manually (India only).")
+            lat_str = st.text_input("Latitude", value="", placeholder="e.g., 19.0760")
+            lng_str = st.text_input("Longitude", value="", placeholder="e.g., 72.8777")
     with right_col:
         st.write("**Time of Birth**")
         tcols = st.columns([1.1, 1.1, 1.2], gap="small")
@@ -1365,6 +1424,27 @@ dob = _validated_date(dob_str)
 if dob is None:
     st.error("Enter valid date (DD/MM/YYYY)")
     st.stop()
+
+def _validated_float(s):
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+lat_val = _validated_float(lat_str)
+lng_val = _validated_float(lng_str)
+
+# If either coordinate is provided, require both and validate ranges.
+if (lat_str.strip() or lng_str.strip()):
+    if lat_val is None or lng_val is None:
+        st.error("Enter valid numeric latitude and longitude, or leave both blank.")
+        st.stop()
+    if not (-90.0 <= lat_val <= 90.0) or not (-180.0 <= lng_val <= 180.0):
+        st.error("Latitude must be between -90 and 90, longitude between -180 and 180.")
+        st.stop()
 
 try:
     h = int(hour_12)
@@ -1400,6 +1480,8 @@ with st.spinner("Calculating comprehensive KP chart..."):
     'tob': tob,
     'tob_display': f"{hour_12}:{minute} {am_pm}",
     'place': place,
+    'lat': lat_val,
+    'lng': lng_val,
     'gender': gender,
     'name': name_input.strip() if 'name_input' in locals() else ""
     }
