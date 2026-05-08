@@ -1542,6 +1542,759 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None, incl
     buffer.seek(0)
     return buffer
 
+
+# ----------------- Organization / Team Analysis -----------------
+def _org_planet_house(chart_data: dict, planet_name: str) -> str:
+    pdata = (chart_data.get("planets") or {}).get(planet_name, {}) or {}
+    return str(pdata.get("house_whole") or pdata.get("house_cuspal") or "N/A")
+
+
+def _org_future_dasha_windows(chart_data: dict, horizon_years: int = 15) -> list[dict]:
+    """Return future maha/antar windows so AI forecasts stay anchored to current and upcoming years."""
+    raw_dashas = list(((chart_data.get("dashas") or {}).get("raw")) or [])
+    now = datetime.now()
+    horizon = now + timedelta(days=365.25 * horizon_years)
+    windows = []
+
+    for maha in raw_dashas:
+        m_start = maha.get("start")
+        m_end = maha.get("end")
+        if not isinstance(m_start, datetime) or not isinstance(m_end, datetime):
+            continue
+        if m_end < now or m_start > horizon:
+            continue
+
+        windows.append(
+            {
+                "level": "Mahadasha",
+                "lord": maha.get("lord", ""),
+                "start": max(m_start, now).strftime("%Y-%m-%d"),
+                "end": min(m_end, horizon).strftime("%Y-%m-%d"),
+                "planet_house": _org_planet_house(chart_data, maha.get("lord", "")),
+            }
+        )
+
+        for antar in compute_antardashas(maha):
+            a_start = antar.get("start")
+            a_end = antar.get("end")
+            if not isinstance(a_start, datetime) or not isinstance(a_end, datetime):
+                continue
+            if a_end < now or a_start > horizon:
+                continue
+            windows.append(
+                {
+                    "level": "Antardasha",
+                    "lord": f"{maha.get('lord', '')}/{antar.get('lord', '')}",
+                    "start": max(a_start, now).strftime("%Y-%m-%d"),
+                    "end": min(a_end, horizon).strftime("%Y-%m-%d"),
+                    "planet_house": _org_planet_house(chart_data, antar.get("lord", "")),
+                }
+            )
+
+    return windows[:36]
+
+
+def _org_ai_payload(
+    org_payload: dict,
+    chart_data: dict,
+    horizon_years: int = 15,
+    match_payload: dict | None = None,
+    match_chart: dict | None = None,
+) -> dict:
+    houses = chart_data.get("houses", {}) or {}
+    planets = chart_data.get("planets", {}) or {}
+    dashas = chart_data.get("dashas", {}) or {}
+
+    def house_summary(house_name: str) -> dict:
+        house = houses.get(house_name, {}) or {}
+        return {
+            "sign": house.get("sign", ""),
+            "degree": house.get("degree", ""),
+            "nakshatra": house.get("nakshatra", ""),
+            "nakshatra_lord": house.get("nakshatra_lord", ""),
+            "sublord": house.get("sublord", ""),
+        }
+
+    def planet_summary(planet_name: str) -> dict:
+        planet = planets.get(planet_name, {}) or {}
+        return {
+            "sign": planet.get("sign", ""),
+            "degree": planet.get("degree", ""),
+            "nakshatra": planet.get("nakshatra", ""),
+            "nakshatra_lord": planet.get("nakshatra_lord", ""),
+            "sublord": planet.get("sublord", ""),
+            "house": planet.get("house_whole") or planet.get("house_cuspal") or "",
+        }
+
+    payload = {
+        "organization": org_payload,
+        "analysis_date": datetime.now().strftime("%Y-%m-%d"),
+        "forecast_horizon": f"{datetime.now().year}-{(datetime.now() + timedelta(days=365.25 * horizon_years)).year}",
+        "instruction": (
+            "Forecast only from the analysis_date forward. Mention past/foundation facts only as chart context. "
+            "Every timing bullet must include a concrete future date range or year range."
+        ),
+        "foundation_chart": {
+            "location": chart_data.get("location", {}),
+            "ayanamsa": chart_data.get("ayanamsa", ""),
+            "key_houses": {
+                "1_identity_brand": house_summary("1st (Lagna)"),
+                "6_competition_disputes": house_summary("6th"),
+                "7_public_alliances_opposition": house_summary("7th"),
+                "10_authority_reputation": house_summary("10th"),
+                "11_gains_support_base": house_summary("11th"),
+            },
+            "key_planets": {
+                name: planet_summary(name)
+                for name in ("Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu", "Ketu")
+                if name in planets
+            },
+        },
+        "current_dasha": dashas.get("current"),
+        "upcoming_dasha": dashas.get("upcoming"),
+        "future_dasha_windows": _org_future_dasha_windows(chart_data, horizon_years),
+    }
+
+    if match_payload and match_chart:
+        match_houses = match_chart.get("houses", {}) or {}
+        match_planets = match_chart.get("planets", {}) or {}
+        match_dashas = match_chart.get("dashas", {}) or {}
+        payload["match_event"] = {
+            "match_details": match_payload,
+            "instruction": (
+                "For a game/match, give an astrological edge/lean only, never a guaranteed winner. "
+                "If opponent is provided, compare the remembered organisation/team as Team A against Team B. "
+                "If opponent is blank, forecast Team A's event performance, momentum, risks, and likely outcome themes."
+            ),
+            "event_chart": {
+                "location": match_chart.get("location", {}),
+                "key_houses": {
+                    "1_team_a": house_summary_from(match_houses, "1st (Lagna)"),
+                    "6_competition": house_summary_from(match_houses, "6th"),
+                    "7_team_b_opponent": house_summary_from(match_houses, "7th"),
+                    "10_result_status": house_summary_from(match_houses, "10th"),
+                    "11_gain_victory": house_summary_from(match_houses, "11th"),
+                    "12_loss_pressure": house_summary_from(match_houses, "12th"),
+                },
+                "moon": planet_summary_from(match_planets, "Moon"),
+                "current_dasha": match_dashas.get("current"),
+                "upcoming_dasha": match_dashas.get("upcoming"),
+            },
+        }
+
+    return payload
+
+
+def house_summary_from(houses: dict, house_name: str) -> dict:
+    house = houses.get(house_name, {}) or {}
+    return {
+        "sign": house.get("sign", ""),
+        "degree": house.get("degree", ""),
+        "nakshatra": house.get("nakshatra", ""),
+        "nakshatra_lord": house.get("nakshatra_lord", ""),
+        "sublord": house.get("sublord", ""),
+    }
+
+
+def planet_summary_from(planets: dict, planet_name: str) -> dict:
+    planet = planets.get(planet_name, {}) or {}
+    return {
+        "sign": planet.get("sign", ""),
+        "degree": planet.get("degree", ""),
+        "nakshatra": planet.get("nakshatra", ""),
+        "nakshatra_lord": planet.get("nakshatra_lord", ""),
+        "sublord": planet.get("sublord", ""),
+        "house": planet.get("house_whole") or planet.get("house_cuspal") or "",
+    }
+
+
+def _org_ai_report(
+    org_payload: dict,
+    chart_data: dict,
+    match_payload: dict | None = None,
+    match_chart: dict | None = None,
+) -> str | None:
+    """
+    Returns an AI-generated report for an organization/team based on foundation details.
+    Returns None on failure so PDF generation still works.
+    """
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Yogi Baba, an astrologer who can do foundation-chart style readings for organizations "
+                        "(political parties, football clubs, sports teams, companies). "
+                        "Be practical, concise, and non-inflammatory. "
+                        "Do NOT provide targeted persuasion, endorsements, or instructions for wrongdoing. "
+                        "No medical/legal/financial guarantees. Do not discuss the past except one short foundation context line. "
+                        "The forecast must be anchored to the supplied analysis_date and future dasha windows.\n\n"
+                        "Return plain text with this structure:\n"
+                        "CURRENT PHASE (4 bullets for analysis_date through next 18 months)\n"
+                        "NEXT 3 YEARS (5 bullets with date ranges)\n"
+                        "YEARS 4-7 (5 bullets with year ranges)\n"
+                        "YEARS 8-15 (5 bullets with year ranges)\n"
+                        "WATCHPOINTS (5 bullets with likely event themes and dates)\n"
+                        "MATCH / EVENT EDGE (only if match_event is provided: 6 bullets with Team A lean/performance, opponent risks if available, and confidence)\n"
+                        "STRATEGIC GUIDANCE (5 bullets tied to future periods)\n\n"
+                        "Each bullet must start with '- '. Each timing bullet must include a date range or year range. "
+                        "Use language like 'likely themes', 'watch for', 'favourable for', and 'edge/lean'; avoid certainty. "
+                        "For match predictions, never mention betting, odds, stakes, or guaranteed outcomes."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        _org_ai_payload(org_payload, chart_data, match_payload=match_payload, match_chart=match_chart),
+                        ensure_ascii=False,
+                        default=str,
+                    ),
+                },
+            ],
+            max_tokens=1400,
+            temperature=0.6,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        return text if text else None
+    except Exception:
+        return None
+
+
+def _calculate_org_foundation_chart(org_date, org_time, org_place: str, lat_val=None, lng_val=None):
+    """Calculate an org foundation chart without leaking individual birth coordinates."""
+    had_birth_details = "birth_details" in st.session_state
+    previous_birth_details = st.session_state.get("birth_details")
+    try:
+        st.session_state["birth_details"] = {
+            "lat": lat_val if lat_val is not None else None,
+            "lng": lng_val if lng_val is not None else None,
+        }
+        place_for_chart = org_place.strip() or "Manual coordinates"
+        return calculate_comprehensive_chart(org_date, org_time, place_for_chart)
+    finally:
+        if had_birth_details:
+            st.session_state["birth_details"] = previous_birth_details
+        else:
+            st.session_state.pop("birth_details", None)
+
+
+def _org_house_row(chart_data: dict, house_name: str, meaning: str) -> list[str]:
+    house = (chart_data.get("houses") or {}).get(house_name, {}) or {}
+    return [
+        meaning,
+        house_name,
+        house.get("sign", ""),
+        house.get("nakshatra", ""),
+        house.get("sublord", ""),
+    ]
+
+
+def _org_non_ai_forecast_lines(chart_data: dict, org_payload: dict) -> list[str]:
+    """Create a deterministic KP-style organisation forecast when AI is off/unavailable."""
+    houses = chart_data.get("houses", {}) or {}
+    planets = chart_data.get("planets", {}) or {}
+    dashas = chart_data.get("dashas", {}) or {}
+    category = org_payload.get("category", "organization")
+
+    lagna = houses.get("1st (Lagna)", {}) or {}
+    sixth = houses.get("6th", {}) or {}
+    seventh = houses.get("7th", {}) or {}
+    tenth = houses.get("10th", {}) or {}
+    eleventh = houses.get("11th", {}) or {}
+    moon = planets.get("Moon", {}) or {}
+    sun = planets.get("Sun", {}) or {}
+    current = dashas.get("current") or {}
+    upcoming = dashas.get("upcoming") or {}
+
+    def house_of(planet_name: str) -> str:
+        pdata = planets.get(planet_name, {}) or {}
+        return str(pdata.get("house_whole") or pdata.get("house_cuspal") or "N/A")
+
+    lines = [
+        (
+            f"- Foundation identity: Lagna in {lagna.get('sign', 'N/A')} with {lagna.get('sublord', 'N/A')} sublord "
+            f"shows the core operating style and public personality of this {category.lower()}."
+        ),
+        (
+            f"- Leadership signal: Sun in {sun.get('sign', 'N/A')} / {sun.get('nakshatra', 'N/A')} "
+            f"placed around house {house_of('Sun')} highlights how authority, visibility, and senior decision-making express."
+        ),
+        (
+            f"- Public mood: Moon in {moon.get('sign', 'N/A')} / {moon.get('nakshatra', 'N/A')} "
+            f"placed around house {house_of('Moon')} indicates the emotional tone of supporters, members, or customers."
+        ),
+        (
+            f"- Competition and pressure: 6th cusp sublord {sixth.get('sublord', 'N/A')} points to how the organisation handles "
+            "rivals, disputes, execution discipline, and day-to-day problem solving."
+        ),
+        (
+            f"- Public relationships: 7th cusp sublord {seventh.get('sublord', 'N/A')} describes alliances, opposition, partnerships, "
+            "and the way the organisation is received by outsiders."
+        ),
+        (
+            f"- Reputation and command: 10th cusp in {tenth.get('sign', 'N/A')} with {tenth.get('sublord', 'N/A')} sublord is the key "
+            "indicator for status, leadership credibility, and institutional direction."
+        ),
+        (
+            f"- Gains and networks: 11th cusp sublord {eleventh.get('sublord', 'N/A')} shows support base, funding/community gains, "
+            "coalitions, audience growth, and fulfilment of goals."
+        ),
+    ]
+
+    if current:
+        lines.append(
+            f"- Current dasha focus: {current.get('lord', 'N/A')} runs from {current.get('start', 'N/A')} to {current.get('end', 'N/A')}; "
+            f"watch themes connected to house {house_of(current.get('lord', ''))} and that planet's sign/nakshatra."
+        )
+    if upcoming:
+        lines.append(
+            f"- Next phase: {upcoming.get('lord', 'N/A')} begins around {upcoming.get('start', 'N/A')}, so planning should prepare for "
+            "a shift in priorities before that period starts."
+        )
+
+    future_windows = [w for w in _org_future_dasha_windows(chart_data, 15) if w.get("level") == "Mahadasha"]
+    for window in future_windows[:4]:
+        lines.append(
+            f"- Future window {window.get('start')} to {window.get('end')}: {window.get('lord')} {window.get('level').lower()} "
+            f"activates house {window.get('planet_house')}; treat this as a major planning cycle for leadership, public response, "
+            "competition, alliances, and gains depending on supporting transits."
+        )
+
+    return lines
+
+
+def _org_match_forecast_lines(
+    org_chart: dict,
+    match_chart: dict,
+    org_payload: dict,
+    match_payload: dict,
+) -> list[str]:
+    """Create a cautious match edge from the org foundation chart and match event chart."""
+    event_houses = match_chart.get("houses", {}) or {}
+    event_planets = match_chart.get("planets", {}) or {}
+    event_dashas = match_chart.get("dashas", {}) or {}
+    org_houses = org_chart.get("houses", {}) or {}
+
+    team_name = org_payload.get("name", "Team A")
+    opponent = (match_payload.get("opponent") or "").strip()
+    has_opponent = bool(opponent)
+    opponent_label = opponent if has_opponent else "no opponent specified"
+    current = event_dashas.get("current") or {}
+    moon = event_planets.get("Moon", {}) or {}
+
+    team_score = 0
+    opponent_score = 0
+    reasons = []
+
+    team_success_sublords = {
+        (org_houses.get("6th", {}) or {}).get("sublord"),
+        (org_houses.get("10th", {}) or {}).get("sublord"),
+        (org_houses.get("11th", {}) or {}).get("sublord"),
+    }
+    event_team_sublords = {
+        (event_houses.get("1st (Lagna)", {}) or {}).get("sublord"),
+        (event_houses.get("6th", {}) or {}).get("sublord"),
+        (event_houses.get("10th", {}) or {}).get("sublord"),
+        (event_houses.get("11th", {}) or {}).get("sublord"),
+    }
+    event_opponent_sublords = {
+        (event_houses.get("7th", {}) or {}).get("sublord"),
+        (event_houses.get("12th", {}) or {}).get("sublord"),
+    }
+
+    shared_team_support = {x for x in team_success_sublords.intersection(event_team_sublords) if x}
+    shared_opponent_pressure = {x for x in team_success_sublords.intersection(event_opponent_sublords) if x}
+    team_score += len(shared_team_support) * 2
+    opponent_score += len(shared_opponent_pressure) * 2
+
+    moon_house = moon.get("house_whole") or moon.get("house_cuspal")
+    if moon_house in (1, 6, 10, 11):
+        team_score += 1
+    if moon_house in (7, 12):
+        opponent_score += 1
+
+    current_lord_house = _org_planet_house(match_chart, current.get("lord", ""))
+    if current_lord_house in ("1", "6", "10", "11"):
+        team_score += 1
+    if current_lord_house in ("7", "12"):
+        opponent_score += 1
+
+    if shared_team_support:
+        reasons.append(f"shared success sublords {', '.join(sorted(shared_team_support))} connect the team foundation with match houses 1/6/10/11")
+    if shared_opponent_pressure:
+        reasons.append(f"pressure sublords {', '.join(sorted(shared_opponent_pressure))} connect the team foundation with event houses 7/12")
+    if not reasons:
+        reasons.append("the event chart gives mixed signals, so use the edge as low-confidence")
+
+    if not has_opponent:
+        opponent_score = 0
+        if team_score >= 3:
+            lean = f"{team_name} has a favourable event/performance window"
+            confidence = "medium"
+        elif team_score >= 1:
+            lean = f"{team_name} has a mixed but usable event/performance window"
+            confidence = "low"
+        else:
+            lean = f"{team_name} has a cautious/volatile event window"
+            confidence = "low"
+    elif team_score > opponent_score:
+        lean = f"{team_name} has the astrological edge"
+        confidence = "medium" if team_score - opponent_score >= 2 else "low"
+    elif opponent_score > team_score:
+        lean = f"{opponent} has the astrological edge"
+        confidence = "medium" if opponent_score - team_score >= 2 else "low"
+    else:
+        lean = "No clear edge; treat this as a close/volatile match"
+        confidence = "low"
+
+    return [
+        f"- Match/event context: {team_name} vs {opponent_label} on {match_payload.get('match_date', 'N/A')} at {match_payload.get('match_time', 'N/A')} in {match_payload.get('match_place', 'N/A')}.",
+        f"- Edge/lean: {lean}; confidence is {confidence}, not a guarantee.",
+        f"- Team A score signal: {team_score}; {'opponent score signal: ' + str(opponent_score) if has_opponent else 'solo event mode'}; this is a symbolic KP comparison, not a statistical model.",
+        f"- Event Moon: {moon.get('sign', 'N/A')} / {moon.get('nakshatra', 'N/A')} in house {moon_house or 'N/A'} describes match mood and momentum swings.",
+        f"- Event dasha: {current.get('lord', 'N/A')} from {current.get('start', 'N/A')} to {current.get('end', 'N/A')} activates event house {current_lord_house}.",
+        f"- Main reason: {reasons[0]}.",
+    ]
+
+
+def generate_org_pdf_report(
+    org_payload: dict,
+    chart_data: dict | None = None,
+    ai_text: str | None = None,
+    match_payload: dict | None = None,
+    match_chart: dict | None = None,
+) -> io.BytesIO:
+    """Generate a PDF report for an organization/team analysis."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=0.45 * inch,
+        rightMargin=0.45 * inch,
+        topMargin=0.5 * inch,
+        bottomMargin=0.5 * inch,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "OrgTitle",
+        parent=styles["Heading1"],
+        fontSize=16,
+        textColor=colors.HexColor("#8B4513"),
+        alignment=TA_CENTER,
+        spaceAfter=12,
+    )
+
+    story.append(Paragraph("ORGANISATION / TEAM FORECAST REPORT", title_style))
+    story.append(Spacer(1, 0.1 * inch))
+
+    rows = [
+        ["Organization / Team:", org_payload.get("name", "")],
+        ["Category:", org_payload.get("category", "")],
+        ["Foundation Date:", org_payload.get("foundation_date", "")],
+        ["Foundation Time:", org_payload.get("foundation_time", "")],
+        ["Foundation Place:", org_payload.get("foundation_place", "")],
+        ["Coordinates:", org_payload.get("coordinates", "")],
+        ["Notes:", org_payload.get("notes", "")],
+    ]
+    t = Table(rows, colWidths=[1.7 * inch, 4.3 * inch])
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#FFF8DC")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ]
+        )
+    )
+    story.append(t)
+    story.append(Spacer(1, 0.15 * inch))
+
+    if chart_data:
+        location = chart_data.get("location", {}) or {}
+        asc = (chart_data.get("houses") or {}).get("1st (Lagna)", {}) or {}
+        moon = (chart_data.get("planets") or {}).get("Moon", {}) or {}
+        sun = (chart_data.get("planets") or {}).get("Sun", {}) or {}
+        dashas = chart_data.get("dashas", {}) or {}
+        current = dashas.get("current") or {}
+        upcoming = dashas.get("upcoming") or {}
+
+        story.append(Paragraph("Foundation Chart Snapshot", styles["Heading3"]))
+        snapshot_rows = [
+            ["Lagna:", f"{asc.get('sign', '')} {asc.get('degree', '')} | Nakshatra: {asc.get('nakshatra', '')} | Sublord: {asc.get('sublord', '')}"],
+            ["Sun:", f"{sun.get('sign', '')} {sun.get('degree', '')} | House: {sun.get('house_whole', sun.get('house_cuspal', ''))} | Sublord: {sun.get('sublord', '')}"],
+            ["Moon:", f"{moon.get('sign', '')} {moon.get('degree', '')} | House: {moon.get('house_whole', moon.get('house_cuspal', ''))} | Sublord: {moon.get('sublord', '')}"],
+            ["Current Dasha:", f"{current.get('lord', '')} | {current.get('start', '')} to {current.get('end', '')}"],
+            ["Upcoming Dasha:", f"{upcoming.get('lord', '')} | starts {upcoming.get('start', '')}"],
+            ["Resolved Location:", f"{location.get('lat', ''):.4f}, {location.get('lng', ''):.4f} | {location.get('tz_name', '')}"],
+        ]
+        snapshot = Table(snapshot_rows, colWidths=[1.45 * inch, 4.55 * inch])
+        snapshot.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(snapshot)
+        story.append(Spacer(1, 0.15 * inch))
+
+        story.append(Paragraph("Key KP Organisation Indicators", styles["Heading3"]))
+        indicator_rows = [["Area", "House", "Sign", "Nakshatra", "Sublord"]]
+        indicator_rows.extend(
+            [
+                _org_house_row(chart_data, "1st (Lagna)", "Identity / brand"),
+                _org_house_row(chart_data, "6th", "Competition / disputes"),
+                _org_house_row(chart_data, "7th", "Public / alliances"),
+                _org_house_row(chart_data, "10th", "Authority / reputation"),
+                _org_house_row(chart_data, "11th", "Gains / support base"),
+            ]
+        )
+        indicators = Table(indicator_rows, colWidths=[1.35 * inch, 1.0 * inch, 1.0 * inch, 1.45 * inch, 1.2 * inch], repeatRows=1)
+        indicators.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDECEC")),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
+        story.append(indicators)
+        story.append(Spacer(1, 0.15 * inch))
+
+        story.append(Paragraph("Non-AI KP Forecast", styles["Heading3"]))
+        for line in _org_non_ai_forecast_lines(chart_data, org_payload):
+            story.append(Paragraph(html.escape(line), styles["Normal"]))
+        story.append(Spacer(1, 0.15 * inch))
+
+    if chart_data and match_payload and match_chart:
+        match_location = match_chart.get("location", {}) or {}
+        story.append(Paragraph("Game / Event Edge Forecast", styles["Heading3"]))
+        match_rows = [
+            ["Team A:", org_payload.get("name", "")],
+            ["Opponent / Team B:", match_payload.get("opponent") or "Not specified"],
+            ["Event Date:", match_payload.get("match_date", "")],
+            ["Event Time:", match_payload.get("match_time", "")],
+            ["Event Place:", match_payload.get("match_place", "")],
+            ["Venue Type:", match_payload.get("venue_type", "")],
+            ["Event Coordinates:", f"{match_location.get('lat', ''):.4f}, {match_location.get('lng', ''):.4f} | {match_location.get('tz_name', '')}"],
+        ]
+        match_table = Table(match_rows, colWidths=[1.7 * inch, 4.3 * inch])
+        match_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F5F5F5")),
+                    ("GRID", (0, 0), (-1, -1), 0.35, colors.grey),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+        story.append(match_table)
+        story.append(Spacer(1, 0.1 * inch))
+        for line in _org_match_forecast_lines(chart_data, match_chart, org_payload, match_payload):
+            story.append(Paragraph(html.escape(line), styles["Normal"]))
+        story.append(Spacer(1, 0.15 * inch))
+
+    story.append(Paragraph("AI Forecast", styles["Heading3"]))
+    if ai_text:
+        for line in ai_text.splitlines():
+            line = (line or "").strip()
+            if line:
+                story.append(Paragraph(html.escape(line), styles["Normal"]))
+    else:
+        story.append(
+            Paragraph(
+                "AI forecast was not included. The chart-based non-AI forecast above was generated from the foundation details.",
+                styles["Normal"],
+            )
+        )
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+def render_org_analysis_section() -> None:
+    """Render org/team UI independently from individual chart generation."""
+    st.markdown("---")
+    st.markdown("### 🏛️ Organisation / Team Analysis")
+    st.caption(
+        "Use this for predictions for a political party, football club, company, or organisation based on foundation details."
+    )
+
+    org_memory = st.session_state.get("org_memory")
+    if org_memory:
+        remembered = org_memory.get("payload", {}) or {}
+        st.info(
+            f"Remembered organisation: {remembered.get('name', 'N/A')} "
+            f"({remembered.get('category', 'N/A')}) | Foundation: {remembered.get('foundation_date', 'N/A')}"
+        )
+        if st.button("Clear organisation memory"):
+            st.session_state.pop("org_memory", None)
+            st.rerun()
+
+    with st.expander("Open organisation / team analysis", expanded=True):
+        with st.form("org_form", clear_on_submit=False):
+            c1, c2 = st.columns([1.2, 1], gap="medium")
+            with c1:
+                org_name = st.text_input("Organization / Team name", value="", placeholder="e.g., XYZ Football Club")
+                org_category = st.selectbox(
+                    "Category",
+                    ["Political party", "Sports team / club", "Company / Startup", "Other"],
+                )
+                org_place = st.text_input("Foundation place", value="", placeholder="e.g., Hyderabad, Telangana")
+                org_notes = st.text_area(
+                    "Context / notes (optional)",
+                    value="",
+                    height=90,
+                    placeholder="e.g., ideology, league, goals, leadership, current challenges",
+                )
+                include_match = st.checkbox("Add game/event edge analysis", value=False)
+                match_opponent = st.text_input("Opponent / Team B (optional)", value="", placeholder="Leave blank for solo org event")
+                match_place = st.text_input("Match/event venue/place", value="", placeholder="e.g., Kolkata, West Bengal")
+            with c2:
+                org_date = st.date_input("Foundation date", value=datetime(2000, 1, 1).date())
+                org_time = st.time_input("Foundation time (optional)", value=datetime.strptime("12:00", "%H:%M").time())
+                match_date = st.date_input("Match date", value=datetime.now().date())
+                match_time = st.time_input("Match start time", value=datetime.now().time().replace(second=0, microsecond=0))
+                venue_type = st.selectbox("Venue type", ["Neutral", "Home for Team A", "Away for Team A"])
+                with st.expander("Advanced (optional): manual coordinates", expanded=False):
+                    org_lat = st.text_input("Latitude", value="", placeholder="e.g., 17.3850")
+                    org_lng = st.text_input("Longitude", value="", placeholder="e.g., 78.4867")
+                    match_lat = st.text_input("Match latitude", value="", placeholder="e.g., 22.5726")
+                    match_lng = st.text_input("Match longitude", value="", placeholder="e.g., 88.3639")
+
+                include_ai = st.toggle("Include AI forecast (uses OpenAI)", value=True)
+                org_submit = st.form_submit_button("Generate organisation forecast PDF")
+
+        if org_submit:
+            if not org_name.strip():
+                st.error("Please enter the organization/team name.")
+                return
+
+            coords_str = ""
+            lat_val = None
+            lng_val = None
+            if (org_lat or "").strip() or (org_lng or "").strip():
+                try:
+                    lat_val = float((org_lat or "").strip())
+                    lng_val = float((org_lng or "").strip())
+                    if not (-90.0 <= lat_val <= 90.0 and -180.0 <= lng_val <= 180.0):
+                        raise ValueError("range")
+                    coords_str = f"{lat_val:.4f}, {lng_val:.4f}"
+                except Exception:
+                    st.error("Invalid manual latitude/longitude. Leave both blank or enter valid numbers.")
+                    return
+            elif not org_place.strip():
+                st.error("Please enter a foundation place, or provide manual latitude/longitude.")
+                return
+
+            org_chart, chart_error = _calculate_org_foundation_chart(
+                org_date,
+                org_time,
+                org_place,
+                lat_val,
+                lng_val,
+            )
+            if chart_error:
+                st.error(chart_error)
+                return
+
+            match_payload = None
+            match_chart = None
+            if include_match:
+                match_lat_val = None
+                match_lng_val = None
+                if (match_lat or "").strip() or (match_lng or "").strip():
+                    try:
+                        match_lat_val = float((match_lat or "").strip())
+                        match_lng_val = float((match_lng or "").strip())
+                        if not (-90.0 <= match_lat_val <= 90.0 and -180.0 <= match_lng_val <= 180.0):
+                            raise ValueError("range")
+                    except Exception:
+                        st.error("Invalid match latitude/longitude. Leave both blank or enter valid numbers.")
+                        return
+                elif not match_place.strip():
+                    st.error("Please enter a match venue/place, or provide match latitude/longitude.")
+                    return
+
+                match_chart, match_error = _calculate_org_foundation_chart(
+                    match_date,
+                    match_time,
+                    match_place,
+                    match_lat_val,
+                    match_lng_val,
+                )
+                if match_error:
+                    st.error(match_error)
+                    return
+
+                match_payload = {
+                    "team_a": org_name.strip(),
+                    "opponent": match_opponent.strip(),
+                    "match_date": match_date.strftime("%Y-%m-%d"),
+                    "match_time": match_time.strftime("%H:%M"),
+                    "match_place": match_place.strip(),
+                    "venue_type": venue_type,
+                    "coordinates": f"{match_chart['location']['lat']:.4f}, {match_chart['location']['lng']:.4f}",
+                }
+
+            payload = {
+                "name": org_name.strip(),
+                "category": org_category,
+                "foundation_date": org_date.strftime("%Y-%m-%d"),
+                "foundation_time": org_time.strftime("%H:%M"),
+                "foundation_place": org_place.strip(),
+                "coordinates": coords_str
+                or f"{org_chart['location']['lat']:.4f}, {org_chart['location']['lng']:.4f}",
+                "notes": (org_notes or "").strip()[:1200],
+            }
+
+            with st.spinner("Generating organisation report..."):
+                ai_text = _org_ai_report(payload, org_chart, match_payload, match_chart) if include_ai else None
+                pdf_buf = generate_org_pdf_report(payload, org_chart, ai_text, match_payload, match_chart)
+
+            st.session_state["org_memory"] = {
+                "payload": payload,
+                "chart": org_chart,
+                "ai_text": ai_text,
+                "match_payload": match_payload,
+                "match_chart": match_chart,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+
+            st.success("✅ Organisation report ready")
+            st.caption(
+                f"Foundation chart calculated for {org_chart['location']['lat']:.4f}, "
+                f"{org_chart['location']['lng']:.4f} ({org_chart['location']['tz_name']})."
+            )
+            if match_payload and match_chart:
+                st.caption(
+                    f"Match event chart calculated for {match_chart['location']['lat']:.4f}, "
+                    f"{match_chart['location']['lng']:.4f} ({match_chart['location']['tz_name']}). "
+                    "Organisation memory updated with this match context."
+                )
+            st.download_button(
+                "📥 Download organisation forecast PDF",
+                data=pdf_buf.getvalue(),
+                file_name=f"Org_Forecast_{org_name.strip().replace(' ', '_')}_{uuid.uuid4().hex[:6]}.pdf",
+                mime="application/pdf",
+            )
+
+
 # ========== STREAMLIT UI ==========
 # Input form
 st.markdown('<div class="card"><h2>Enter your birth details</h2><div class="muted">Provide accurate date, time and place for best results</div></div>', unsafe_allow_html=True)
@@ -1566,8 +2319,11 @@ with st.form("birth_form", clear_on_submit=False):
         am_pm = tcols[2].radio("Meridian", ["AM", "PM"], horizontal=True, label_visibility="collapsed")
         st.write("")  # spacer
         gender = st.selectbox("Gender", ["Male","Female","Other"], label_visibility="visible")
+        include_individual_ai_summary = st.toggle("Include AI summary in PDF (uses OpenAI)", value=False)
 
     submitted = st.form_submit_button("Generate Complete KP Chart ✨")        
+
+render_org_analysis_section()
 
 if not submitted and "chart_result" not in st.session_state:
     st.info("Enter birth details and press Generate")
@@ -1646,7 +2402,8 @@ with st.spinner("Calculating comprehensive KP chart..."):
     'lat': lat_val,
     'lng': lng_val,
     'gender': gender,
-    'name': name_input.strip() if 'name_input' in locals() else ""
+    'name': name_input.strip() if 'name_input' in locals() else "",
+    'include_ai_summary': include_individual_ai_summary,
     }
 
     # DEBUG: Show key values for verification
@@ -1927,12 +2684,13 @@ if name_val or numerology.get("life_path"):
     st.write(f"**Life Path Number:** {numerology['life_path']}")
 
 # PDF download
+birth_details_for_pdf = st.session_state.get("birth_details") or {}
 pdf_buffer = generate_pdf_report(
     {'dob':dob,'tob':tob,'place':place,'gender':gender,'tob_display':f"{hour_12}:{minute} {am_pm}"}, 
     chart_result, 
     name=name_val, 
     numerology=numerology,
-    include_ai_summary=st.toggle("Include AI summary in PDF (uses OpenAI)", value=False)
+    include_ai_summary=bool(birth_details_for_pdf.get("include_ai_summary", False))
 )
 st.download_button(
     "📥 Download PDF Report", 
@@ -2040,117 +2798,6 @@ Please provide a detailed KP analysis using the above data.
     except Exception as e:
         return f"⚠️ Error in get_ai_reading: {str(e)}"
 
-# ----------------- Organization / Team Analysis (new feature) -----------------
-def _org_ai_report(org_payload: dict) -> str | None:
-    """
-    Returns an AI-generated report for an organization/team based on foundation details.
-    Returns None on failure (must not break the app).
-    """
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Yogi Baba, an astrologer who can do foundation-chart style readings for organizations "
-                        "(political parties, football clubs, sports teams, companies). "
-                        "Be practical, concise, and non-inflammatory. "
-                        "Do NOT provide targeted persuasion, endorsements, or instructions for wrongdoing. "
-                        "No medical/legal/financial guarantees.\n\n"
-                        "Return plain text with this structure:\n"
-                        "OVERVIEW (6 bullets)\n"
-                        "STRENGTHS (5 bullets)\n"
-                        "RISKS (5 bullets)\n"
-                        "NEXT 12 MONTHS (6 bullets)\n"
-                        "RECOMMENDATIONS (6 bullets)\n\n"
-                        "Each bullet must start with '- ' and be one line."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(org_payload, ensure_ascii=False),
-                },
-            ],
-            max_tokens=420,
-            temperature=0.6,
-        )
-        text = (resp.choices[0].message.content or "").strip()
-        return text if text else None
-    except Exception:
-        return None
-
-
-def generate_org_pdf_report(org_payload: dict, ai_text: str | None) -> io.BytesIO:
-    """Generate a PDF report for an organization/team analysis (AI optional)."""
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        leftMargin=0.45 * inch,
-        rightMargin=0.45 * inch,
-        topMargin=0.5 * inch,
-        bottomMargin=0.5 * inch,
-    )
-    story = []
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "OrgTitle",
-        parent=styles["Heading1"],
-        fontSize=16,
-        textColor=colors.HexColor("#8B4513"),
-        alignment=TA_CENTER,
-        spaceAfter=12,
-    )
-
-    story.append(Paragraph("🏛️ ORGANIZATION / TEAM FORECAST REPORT", title_style))
-    story.append(Spacer(1, 0.1 * inch))
-
-    # Input summary table
-    rows = [
-        ["Organization / Team:", org_payload.get("name", "")],
-        ["Category:", org_payload.get("category", "")],
-        ["Foundation Date:", org_payload.get("foundation_date", "")],
-        ["Foundation Time:", org_payload.get("foundation_time", "")],
-        ["Foundation Place:", org_payload.get("foundation_place", "")],
-        ["Coordinates:", org_payload.get("coordinates", "")],
-        ["Notes:", org_payload.get("notes", "")],
-    ]
-    t = Table(rows, colWidths=[1.7 * inch, 4.3 * inch])
-    t.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#FFF8DC")),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ]
-        )
-    )
-    story.append(t)
-    story.append(Spacer(1, 0.15 * inch))
-
-    # AI section (optional)
-    story.append(Paragraph("AI Forecast", styles["Heading3"]))
-    if ai_text:
-        for line in ai_text.splitlines():
-            line = (line or "").strip()
-            if not line:
-                continue
-            story.append(Paragraph(html.escape(line), styles["Normal"]))
-    else:
-        story.append(
-            Paragraph(
-                "AI forecast was skipped (OpenAI unavailable / quota exceeded).",
-                styles["Normal"],
-            )
-        )
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
 # ----------------- AI Readings UI -----------------
 st.markdown("---")
 st.markdown("### 🔮 AI Astrological Readings")
@@ -2223,6 +2870,34 @@ if prompt := st.chat_input("Ask Yogi Baba about your chart..."):
         current_dasha = dasha.get("current", {}).get("lord", "Not available")
         upcoming_dasha = dasha.get("upcoming", {}).get("lord", "Not available")
 
+        org_memory = st.session_state.get("org_memory") or {}
+        org_payload = org_memory.get("payload") or {}
+        org_chart = org_memory.get("chart") or {}
+        org_match = org_memory.get("match_payload") or {}
+        org_context = ""
+        if org_payload and org_chart:
+            org_dashas = org_chart.get("dashas", {}) or {}
+            org_current = org_dashas.get("current") or {}
+            org_upcoming = org_dashas.get("upcoming") or {}
+            org_context = f"""
+
+🏛️ Remembered Organisation:
+Name: {org_payload.get('name', 'N/A')}
+Category: {org_payload.get('category', 'N/A')}
+Foundation: {org_payload.get('foundation_date', 'N/A')} {org_payload.get('foundation_time', 'N/A')}
+Place: {org_payload.get('foundation_place', 'N/A')}
+Current Org Dasha: {org_current.get('lord', 'N/A')} ({org_current.get('start', 'N/A')} to {org_current.get('end', 'N/A')})
+Upcoming Org Dasha: {org_upcoming.get('lord', 'N/A')} starts {org_upcoming.get('start', 'N/A')}
+"""
+            if org_match:
+                org_context += f"""
+Remembered Match:
+Team A: {org_match.get('team_a', 'N/A')}
+Opponent / Team B: {org_match.get('opponent', 'N/A')}
+Date/Time: {org_match.get('match_date', 'N/A')} {org_match.get('match_time', 'N/A')}
+Venue: {org_match.get('match_place', 'N/A')} ({org_match.get('venue_type', 'N/A')})
+"""
+
         context = f"""
 📅 Current Date: {datetime.now().strftime("%B %d, %Y")}
 
@@ -2241,6 +2916,7 @@ Gender: {birth_data.get('gender', 'N/A')}
 ⏰ Vimshottari Dasha:
 Current Dasha: {current_dasha}
 Upcoming Dasha: {upcoming_dasha}
+{org_context}
 """
 
         with st.chat_message("assistant"):
@@ -2249,7 +2925,14 @@ Upcoming Dasha: {upcoming_dasha}
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "You are Yogi Baba, a kind KP astrologer who gives wise and gentle advice."},
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are Yogi Baba, a kind KP astrologer who gives wise and gentle advice. "
+                                    "If remembered organisation or match context is provided, use it for org/team questions. "
+                                    "For match winner questions, give only an astrological edge/lean with confidence and no guarantees, betting advice, or odds."
+                                ),
+                            },
                             {"role": "user", "content": context + "\n\nUser Question: " + prompt},
                         ],
                         max_tokens=800,
@@ -2261,70 +2944,3 @@ Upcoming Dasha: {upcoming_dasha}
                 st.markdown(reply)
                 st.session_state.messages.append({"role": "assistant", "content": reply})
 
-
-# ----------------- Organization / Team Analysis UI (new, non-breaking) -----------------
-st.markdown("---")
-st.markdown("### 🏛️ Organization / Team Analysis (New)")
-st.caption("Use this if you want predictions for a political party, football club, or any organization based on its foundation details.")
-
-with st.expander("Open organization analysis", expanded=False):
-    with st.form("org_form", clear_on_submit=False):
-        c1, c2 = st.columns([1.2, 1], gap="medium")
-        with c1:
-            org_name = st.text_input("Organization / Team name", value="", placeholder="e.g., XYZ Football Club")
-            org_category = st.selectbox("Category", ["Political party", "Sports team / club", "Company / Startup", "Other"])
-            org_place = st.text_input("Foundation place", value="", placeholder="e.g., Hyderabad, Telangana")
-            org_notes = st.text_area("Context / notes (optional)", value="", height=90, placeholder="e.g., ideology, league, goals, leadership, current challenges")
-        with c2:
-            org_date = st.date_input("Foundation date", value=datetime(2000, 1, 1).date())
-            org_time = st.time_input("Foundation time (optional)", value=datetime.strptime("12:00", "%H:%M").time())
-            with st.expander("Advanced (optional): manual coordinates", expanded=False):
-                org_lat = st.text_input("Latitude", value="", placeholder="e.g., 17.3850")
-                org_lng = st.text_input("Longitude", value="", placeholder="e.g., 78.4867")
-
-            include_ai = st.toggle("Include AI forecast (uses OpenAI)", value=True)
-            org_submit = st.form_submit_button("Generate organization forecast PDF")
-
-    if org_submit:
-        # Validate minimal inputs (do not block if optional fields missing)
-        if not org_name.strip():
-            st.error("Please enter the organization/team name.")
-            st.stop()
-
-        # Coordinates (optional)
-        coords_str = ""
-        lat_val = None
-        lng_val = None
-        if (org_lat or "").strip() or (org_lng or "").strip():
-            try:
-                lat_val = float((org_lat or "").strip())
-                lng_val = float((org_lng or "").strip())
-                if not (-90.0 <= lat_val <= 90.0 and -180.0 <= lng_val <= 180.0):
-                    raise ValueError("range")
-                coords_str = f"{lat_val:.4f}, {lng_val:.4f}"
-            except Exception:
-                st.error("Invalid manual latitude/longitude. Leave both blank or enter valid numbers.")
-                st.stop()
-
-        # Build payload (keep compact for token savings)
-        payload = {
-            "name": org_name.strip(),
-            "category": org_category,
-            "foundation_date": org_date.strftime("%Y-%m-%d"),
-            "foundation_time": org_time.strftime("%H:%M"),
-            "foundation_place": org_place.strip(),
-            "coordinates": coords_str,
-            "notes": (org_notes or "").strip()[:1200],
-        }
-
-        with st.spinner("Generating organization report..."):
-            ai_text = _org_ai_report(payload) if include_ai else None
-            pdf_buf = generate_org_pdf_report(payload, ai_text)
-
-        st.success("✅ Organization report ready")
-        st.download_button(
-            "📥 Download organization forecast PDF",
-            data=pdf_buf.getvalue(),
-            file_name=f"Org_Forecast_{org_name.strip().replace(' ','_')}_{uuid.uuid4().hex[:6]}.pdf",
-            mime="application/pdf",
-        )
