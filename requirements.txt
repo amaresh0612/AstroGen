@@ -6,3 +6,5 @@ geopy
 reportlab
 pillow
 timezonefinder==5.2.0
+pytz
+pandas

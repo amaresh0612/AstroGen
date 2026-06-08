@@ -20,136 +20,337 @@ from PIL import Image, ImageDraw, ImageFont
 import math
 import pandas as pd
 
-st.set_page_config(page_title="🧘‍♂️ AstroGen", page_icon="✨", layout="centered")
+st.set_page_config(page_title="AstroGen · KP Astrology", page_icon="✨", layout="wide")
 THEME_CSS = r"""
 <style>
-:root{
-  /* Light-mode friendly defaults */
-  --bg: linear-gradient(180deg,#fbfcfe,#f3f6fb);
-  --page-bg-solid: #f6f7f9;
-  --card-bg: rgba(255,255,255,0.96);
-  --muted: #4b5563;
-  --text: #0b1220;
-  --accent: #ff8c00;
-  --input-bg: rgba(11,18,32,0.03);
-  --input-border: rgba(11,18,32,0.08);
-  --panel-shadow: 0 6px 18px rgba(11,18,32,0.06);
-  --line: rgba(11,18,32,0.12);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cinzel:wght@400;600&display=swap');
+
+/* ── Design tokens ─────────────────────────────────────────── */
+:root {
+  --bg:           #f7f4ef;
+  --bg2:          #eeebe3;
+  --card-bg:      #ffffff;
+  --border:       #ddd5c4;
+  --border-soft:  #ede8df;
+  --muted:        #6e665a;
+  --text:         #1c1714;
+  --accent:       #b8762a;
+  --accent-hover: #9a5f1e;
+  --accent-light: #f5e4c8;
+  --gold:         #c9963a;
+  --shadow-sm:    0 1px 3px rgba(0,0,0,0.07), 0 2px 8px rgba(0,0,0,0.04);
+  --shadow-md:    0 4px 16px rgba(0,0,0,0.09), 0 1px 4px rgba(0,0,0,0.05);
+  --shadow-lg:    0 8px 32px rgba(0,0,0,0.11);
+  --radius:       14px;
+  --radius-sm:    8px;
+  --input-bg:     #faf7f3;
+  --input-border: #cfc5b4;
+  --line:         #ddd5c4;
+  --font:         'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Cinzel', Georgia, serif;
 }
 
-/* Dark-mode adjustments: purposely not pure black to preserve soft contrast */
 @media (prefers-color-scheme: dark) {
-  :root{
-    --bg: linear-gradient(180deg,#071026,#081426);
-    --page-bg-solid: #071026;
-    --card-bg: rgba(255,255,255,0.02);
-    --muted: #9aa7bd;
-    --text: #e6eef8;
-    --accent: #ffb64d;
-    --input-bg: rgba(255,255,255,0.02);
-    --input-border: rgba(255,255,255,0.04);
-    --panel-shadow: 0 6px 18px rgba(0,0,0,0.55);
-    --line: rgba(255,255,255,0.06);
+  :root {
+    --bg:           #12100d;
+    --bg2:          #1a1712;
+    --card-bg:      #201d18;
+    --border:       #2e2920;
+    --border-soft:  #252119;
+    --muted:        #857d72;
+    --text:         #ede8e0;
+    --accent:       #d4913c;
+    --accent-hover: #eba84e;
+    --accent-light: #2e2010;
+    --gold:         #d4a54a;
+    --shadow-sm:    0 1px 3px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.25);
+    --shadow-md:    0 4px 16px rgba(0,0,0,0.45), 0 1px 4px rgba(0,0,0,0.30);
+    --shadow-lg:    0 8px 32px rgba(0,0,0,0.55);
+    --input-bg:     #171410;
+    --input-border: #36302a;
+    --line:         #2b2720;
   }
 }
 
-/* App root: keep a soft background instead of full black */
-[data-testid='stAppViewContainer'] > .main {
+/* ── Base ────────────────────────────────────────────────────── */
+html, body, [data-testid='stAppViewContainer'], [data-testid='stAppViewContainer'] > .main {
+  font-family: var(--font) !important;
   background: var(--bg) !important;
   color: var(--text) !important;
-  padding-top: 12px;
+}
+[data-testid='stAppViewContainer'] > .main {
+  padding-top: 0 !important;
+}
+[data-testid="stHeader"] {
+  background: var(--bg) !important;
+  border-bottom: 1px solid var(--border-soft) !important;
 }
 
-/* Header/title (explicit styling so it remains visible) */
+/* ── Sidebar / toolbar ───────────────────────────────────────── */
+[data-testid="stSidebar"] {
+  background: var(--bg2) !important;
+  border-right: 1px solid var(--border) !important;
+}
+
+/* ── Hero header ─────────────────────────────────────────────── */
 .app-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 10px 6px;
-  background: transparent;
-  border-radius: 10px;
+  gap: 6px;
+  padding: 32px 24px 24px;
+  background: linear-gradient(160deg, var(--bg2) 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  position: relative;
+  overflow: hidden;
+}
+.app-header::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 70% 60% at 50% 0%, var(--accent-light) 0%, transparent 70%);
+  pointer-events: none; opacity: 0.45;
+}
+.app-header-title {
+  font-family: var(--font-display) !important;
+  font-size: clamp(20px, 3vw, 28px);
+  font-weight: 600;
+  color: var(--accent) !important;
+  letter-spacing: 0.06em;
+  margin: 0;
+  text-align: center;
+  position: relative;
+}
+.app-header-sub {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 0;
+  position: relative;
+}
+.app-header-divider {
+  width: 48px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  border-radius: 2px;
+  position: relative;
+}
+
+/* ── Cards ───────────────────────────────────────────────────── */
+.card {
+  background: var(--card-bg) !important;
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
   color: var(--text);
 }
-.app-header h1 {
-  margin: 0; font-size: 18px; font-weight:700; color: var(--accent);
+.card h2 {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: var(--font-display);
+  letter-spacing: 0.03em;
 }
-.app-header p { margin: 0; color: var(--muted); font-size: 13px; }
+.card .muted {
+  color: var(--muted);
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
 
-/* Chat avatar replacements kept but colors use variables */
+/* ── Section headings (h3 rendered by st.markdown) ───────────── */
+h3, .stMarkdown h3 {
+  font-family: var(--font-display) !important;
+  font-size: 16px !important;
+  font-weight: 600 !important;
+  color: var(--accent) !important;
+  letter-spacing: 0.04em !important;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 6px;
+  margin-top: 28px !important;
+  margin-bottom: 14px !important;
+}
+
+/* ── Form inputs ─────────────────────────────────────────────── */
+.stTextInput > div > div > input,
+.stTextInput > div > div > textarea,
+.stTextArea > div > div > textarea {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text) !important;
+  font-family: var(--font) !important;
+  font-size: 14px !important;
+  padding: 10px 12px !important;
+  transition: border-color 0.15s;
+}
+.stTextInput > div > div > input:focus,
+.stTextArea > div > div > textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-light) !important;
+  outline: none !important;
+}
+.stSelectbox > div > div > div,
+.stSelectbox > div > div,
+[data-baseweb="select"] > div {
+  background: var(--input-bg) !important;
+  border: 1px solid var(--input-border) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text) !important;
+  font-family: var(--font) !important;
+  font-size: 14px !important;
+}
+label, .stTextInput label, .stSelectbox label,
+.stTextArea label, .stDateInput label, .stTimeInput label,
+.stRadio label, .stCheckbox label, .stToggle label {
+  color: var(--text) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────── */
+div.stButton > button {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 9px 20px !important;
+  font-family: var(--font) !important;
+  font-weight: 600 !important;
+  font-size: 13.5px !important;
+  letter-spacing: 0.02em !important;
+  box-shadow: 0 2px 8px rgba(184,118,42,0.25) !important;
+  transition: background 0.15s, transform 0.12s, box-shadow 0.15s !important;
+  cursor: pointer !important;
+}
+div.stButton > button:hover {
+  background: var(--accent-hover) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 14px rgba(184,118,42,0.35) !important;
+}
+div.stButton > button:active { transform: translateY(0) !important; }
+
+/* Form submit button — slightly larger */
+div.stFormSubmitButton > button {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 11px 28px !important;
+  font-family: var(--font) !important;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  letter-spacing: 0.03em !important;
+  box-shadow: 0 2px 10px rgba(184,118,42,0.30) !important;
+  transition: background 0.15s, transform 0.12s, box-shadow 0.15s !important;
+  width: auto !important;
+}
+div.stFormSubmitButton > button:hover {
+  background: var(--accent-hover) !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 5px 18px rgba(184,118,42,0.40) !important;
+}
+
+/* Download button */
+div.stDownloadButton > button {
+  background: transparent !important;
+  color: var(--accent) !important;
+  border: 1.5px solid var(--accent) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 8px 20px !important;
+  font-family: var(--font) !important;
+  font-weight: 600 !important;
+  font-size: 13.5px !important;
+  transition: background 0.15s, color 0.15s !important;
+}
+div.stDownloadButton > button:hover {
+  background: var(--accent) !important;
+  color: #fff !important;
+}
+
+/* ── Expanders ───────────────────────────────────────────────── */
+[data-testid="stExpander"] {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  background: var(--card-bg) !important;
+  box-shadow: var(--shadow-sm) !important;
+  overflow: hidden !important;
+  margin-bottom: 16px !important;
+}
+[data-testid="stExpander"] summary {
+  padding: 14px 18px !important;
+  font-weight: 600 !important;
+  font-size: 14px !important;
+  color: var(--text) !important;
+  background: var(--bg2) !important;
+  border-bottom: 1px solid var(--border-soft) !important;
+}
+[data-testid="stExpander"] summary:hover { background: var(--accent-light) !important; }
+
+/* ── Info / warning / error boxes ───────────────────────────── */
+[data-testid="stAlert"] {
+  border-radius: var(--radius-sm) !important;
+  border-left-width: 4px !important;
+  font-size: 13.5px !important;
+}
+
+/* ── Dividers ────────────────────────────────────────────────── */
+hr { border: none !important; border-top: 1px solid var(--line) !important; margin: 28px 0 !important; }
+
+/* ── Chat ────────────────────────────────────────────────────── */
 [data-testid="stChatMessageAvatar"] img { display: none !important; }
-[data-testid="stChatMessageAvatar"][data-testid*="assistant"]::before {
-    content: "🧘‍♂️"; font-size: 26px; display: flex;
-    align-items: center; justify-content: center; color: var(--accent);
+[data-testid="stChatMessage"] {
+  background: var(--card-bg) !important;
+  border: 1px solid var(--border-soft) !important;
+  border-radius: var(--radius) !important;
+  margin-bottom: 8px !important;
 }
-[data-testid="stChatMessageAvatar"][data-testid*="user"]::before {
-    content: "🙂"; font-size: 22px; display: flex;
-    align-items: center; justify-content: center; color: var(--muted);
+[data-testid="stChatInput"] > div {
+  border: 1.5px solid var(--input-border) !important;
+  border-radius: 10px !important;
+  background: var(--input-bg) !important;
 }
-
-/* Card / panel styling */
-.card {
-    background: var(--card-bg) !important;
-    border-radius: 12px;
-    padding: 18px;
-    box-shadow: var(--panel-shadow);
-    border: 1px solid var(--input-border);
-    margin-bottom: 18px;
-    color: var(--text);
-}
-.card h2 { margin: 0 0 6px 0; font-size: 20px; color: var(--accent); }
-.card .muted { color: var(--muted); margin-bottom: 12px; font-size: 13px; }
-
-/* Inputs and selects */
-.stTextInput>div>div>input, .stTextInput>div>div>textarea,
-.stSelectbox>div>div>div>div, .stMultiSelect>div>div>div>div {
-    background: var(--input-bg) !important;
-    border-radius: 8px !important;
-    padding: 12px 12px !important;
-    border: 1px solid var(--input-border) !important;
-    color: var(--text) !important;
-    font-size: 15px !important;
+[data-testid="stChatInput"] > div:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-light) !important;
 }
 
-/* Buttons */
-div.stButton > button:first-child {
-    background-color: var(--accent) !important;
-    color: white !important;
-    padding: 10px 18px !important;
-    border-radius: 10px !important;
-    font-weight: 600 !important;
-    font-size: 14px !important;
-    border: none !important;
-}
-div.stButton > button:first-child:hover { transform: translateY(-1px); }
+/* ── Tables (Streamlit native) ───────────────────────────────── */
+.stTable td, .stTable th, .stMarkdown { color: var(--text) !important; }
 
-/* Table / small text */
-.stTable td, .stTable th, .stCheckbox, .stMarkdown {
-    color: var(--text) !important;
+/* ── Captions / footnotes ────────────────────────────────────── */
+.stCaption, [data-testid="stCaptionContainer"], footer { color: var(--muted) !important; font-size: 12px !important; }
+
+/* ── Images ──────────────────────────────────────────────────── */
+img { max-width: 100% !important; height: auto !important; border-radius: 6px; }
+
+/* ── Toggle ─────────────────────────────────────────────────── */
+[data-testid="stToggle"] [role="switch"][aria-checked="true"] {
+  background-color: var(--accent) !important;
 }
 
-/* Footer / caption */
-footer, .stCaption, .stText {
-    color: var(--muted) !important;
-}
+/* ── Radio ───────────────────────────────────────────────────── */
+[data-testid="stRadio"] > div { gap: 6px !important; }
 
-/* Chart image */
-img { max-width: 100% !important; height: auto !important; }
-
-/* subtle dividers */
-hr, .css-1v3fvcr { border-color: var(--line) !important; }
-
-/* small text tweaks */
+/* ── Utility ─────────────────────────────────────────────────── */
 .canvas-legend, .chart-note { color: var(--muted) !important; }
 </style>
 """
 st.markdown(THEME_CSS, unsafe_allow_html=True)
 
-# ---------- Restored header (visible in both themes) ----------
+# ---------- Professional header ----------
 st.markdown(
     """
     <div class="app-header">
-      <h1>🙏 Namaste! 🧘‍♂️ I am Yogi Baba - Your Astrologer</h1>
+      <div class="app-header-divider"></div>
+      <p class="app-header-title">✦ AstroGen ✦</p>
+      <p class="app-header-sub">KP Vedic Astrology &nbsp;·&nbsp; AI-Powered Readings &nbsp;·&nbsp; Personal &amp; Organisation Charts</p>
+      <div class="app-header-divider"></div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1009,165 +1210,210 @@ def get_house_number_from_degree(degree, house_cusps):
     return 1
 
 def render_chart_png_bytes_pil(planet_data, house_cusps_degrees, size=900, show_pada=True):
-    """Render East-Indian style chart."""
-    pad = int(size * 0.05)
+    """
+    Render Odia-style (East-Indian) Lagna chart.
+
+    ODIA STYLE RULES:
+    - Sign positions are FIXED in the grid (Aries always top-center, etc.)
+    - House numbers rotate based on the Lagna sign
+    - 12 signs fill 8 cells of the 3x3 grid; 4 cells have 2 signs each
+
+    Fixed sign layout (counterclockwise from Aries):
+        [Gemini      ] | [Aries + Taurus    ] | [Pisces      ]
+        [Cancer      ] | [      empty       ] | [Aquarius    ]
+        [Leo + Virgo ] | [Libra + Scorpio   ] | [Sag + Cap   ]
+    """
+    pad   = int(size * 0.05)
     inner = size - 2 * pad
-    cell = inner / 3.0
+    cell  = inner / 3.0
     ox, oy = pad, pad
-    
-    bg = (255, 255, 255)
-    line_color = (0, 0, 0)
-    planet_color = (2, 48, 99)
-    house_num_color = (40, 40, 40)
-    
-    im = Image.new("RGB", (size, size), bg)
+
+    # ── Colours ──────────────────────────────────────────────────
+    bg           = (252, 248, 242)   # warm off-white
+    border_color = (58,  26,   0)    # dark brown
+    grid_color   = (58,  26,   0)
+    planet_color = (10,  26,  64)    # dark navy
+    house_color  = (140, 100,  60)   # muted brown for house numbers
+    sign_color   = (160, 120,  70)   # muted for sign labels
+
+    im   = Image.new("RGB", (size, size), bg)
     draw = ImageDraw.Draw(im)
-    
-    # Draw outer border
-    draw.rectangle([pad // 4, pad // 4, size - pad // 4, size - pad // 4], 
-                  outline=line_color, width=max(2, int(size * 0.01)))
-    
-    # Draw 3x3 grid
-    draw.rectangle([ox, oy, ox + inner, oy + inner], 
-                  outline=line_color, width=max(1, int(size * 0.003)))
-    
+
+    # ── Outer border ──────────────────────────────────────────────
+    bw = max(3, int(size * 0.012))
+    draw.rectangle([pad // 4, pad // 4, size - pad // 4, size - pad // 4],
+                   outline=border_color, width=bw)
+
+    # ── 3x3 inner grid ────────────────────────────────────────────
+    gw = max(2, int(size * 0.004))
+    draw.rectangle([ox, oy, ox + inner, oy + inner],
+                   outline=grid_color, width=gw)
     for i in range(1, 3):
         x = ox + i * cell
         y = oy + i * cell
-        draw.line([(x, oy), (x, oy + inner)], fill=line_color, width=max(1, int(size * 0.003)))
-        draw.line([(ox, y), (ox + inner, y)], fill=line_color, width=max(1, int(size * 0.003)))
-    
-    # Draw diagonal lines
+        draw.line([(x, oy), (x, oy + inner)], fill=grid_color, width=gw)
+        draw.line([(ox, y), (ox + inner, y)], fill=grid_color, width=gw)
+
+    # ── Corner diagonal lines (Odia style) ────────────────────────
     x0, x1, x2, x3 = ox, ox + cell, ox + 2 * cell, ox + 3 * cell
     y0, y1, y2, y3 = oy, oy + cell, oy + 2 * cell, oy + 3 * cell
-    
-    draw.line([(x0, y3), (x1, y2)], fill=line_color, width=max(1, int(size * 0.003)))
-    draw.line([(x3, y3), (x2, y2)], fill=line_color, width=max(1, int(size * 0.003)))
-    draw.line([(x0, y0), (x1, y1)], fill=line_color, width=max(1, int(size * 0.003)))
-    draw.line([(x3, y0), (x2, y1)], fill=line_color, width=max(1, int(size * 0.003)))
-    
-    # House positions (East-Indian style)
-    positions = {
-        1:  (ox + 1.50 * cell, oy + 2.68 * cell, 'center'),
-        2:  (ox + 2.73 * cell, oy + 2.18 * cell, 'right'),
-        3:  (ox + 2.73 * cell, oy + 1.50 * cell, 'right'),
-        4:  (ox + 2.73 * cell, oy + 0.32 * cell, 'right'),
-        5:  (ox + 1.50 * cell, oy + 0.32 * cell, 'center'),
-        6:  (ox + 1.50 * cell, oy + 1.50 * cell, 'center'),
-        7:  (ox + 0.27 * cell, oy + 1.50 * cell, 'left'),
-        8:  (ox + 0.27 * cell, oy + 2.18 * cell, 'left'),
-        9:  (ox + 1.50 * cell, oy + 2.18 * cell, 'center'),
-        10: (ox + 0.27 * cell, oy + 0.32 * cell, 'left'),
-        11: (ox + 0.27 * cell, oy + 1.82 * cell, 'left'),
-        12: (ox + 0.80 * cell, oy + 2.80 * cell, 'center'),
+    draw.line([(x0, y0), (x1, y1)], fill=grid_color, width=gw)   # top-left
+    draw.line([(x3, y0), (x2, y1)], fill=grid_color, width=gw)   # top-right
+    draw.line([(x0, y3), (x1, y2)], fill=grid_color, width=gw)   # bot-left
+    draw.line([(x3, y3), (x2, y2)], fill=grid_color, width=gw)   # bot-right
+
+    # ── Load fonts ────────────────────────────────────────────────
+    try:
+        font_planet = ImageFont.truetype("DejaVuSans-Bold.ttf",
+                                         size=max(13, int(size * 0.032)))
+        font_house  = ImageFont.truetype("DejaVuSans-Bold.ttf",
+                                         size=max(10, int(size * 0.020)))
+        font_sign   = ImageFont.truetype("DejaVuSans.ttf",
+                                         size=max(9,  int(size * 0.016)))
+    except Exception:
+        font_planet = ImageFont.load_default()
+        font_house  = font_planet
+        font_sign   = font_planet
+
+    # ── Fixed ODIA sign positions (sign index 0=Aries … 11=Pisces) ──
+    # Two-sign cells split vertically: upper = sign n, lower = sign n+1
+    half = cell * 0.27
+    SIGN_POS = {
+        0:  (ox + 1.50*cell, oy + 0.50*cell - half, 'center'),  # Aries   (TC upper)
+        1:  (ox + 1.50*cell, oy + 0.50*cell + half, 'center'),  # Taurus  (TC lower)
+        2:  (ox + 0.34*cell, oy + 0.36*cell,        'center'),  # Gemini  (TL corner)
+        3:  (ox + 0.34*cell, oy + 1.50*cell,        'left'  ),  # Cancer  (ML)
+        4:  (ox + 0.34*cell, oy + 2.50*cell - half, 'left'  ),  # Leo     (BL upper)
+        5:  (ox + 0.34*cell, oy + 2.50*cell + half, 'left'  ),  # Virgo   (BL lower)
+        6:  (ox + 1.50*cell, oy + 2.50*cell - half, 'center'),  # Libra   (BC upper)
+        7:  (ox + 1.50*cell, oy + 2.50*cell + half, 'center'),  # Scorpio (BC lower)
+        8:  (ox + 2.66*cell, oy + 2.50*cell - half, 'right' ),  # Sagittarius (BR upper)
+        9:  (ox + 2.66*cell, oy + 2.50*cell + half, 'right' ),  # Capricorn   (BR lower)
+        10: (ox + 2.66*cell, oy + 1.50*cell,        'right' ),  # Aquarius (MR)
+        11: (ox + 2.66*cell, oy + 0.36*cell,        'right' ),  # Pisces   (TR corner)
     }
-    
-    # Group planets by house
-    houses = {i: [] for i in range(1, 13)}
+
+    SIGN_NAMES = ['Ari','Tau','Gem','Can','Leo','Vir',
+                  'Lib','Sco','Sag','Cap','Aqu','Pis']
+
+    # ── Determine Lagna sign from first house cusp ─────────────────
+    try:
+        asc_degree      = float(house_cusps_degrees[0]) % 360.0
+        lagna_sign_idx  = int(asc_degree / 30) % 12
+    except Exception:
+        lagna_sign_idx  = 0
+
+    def house_of_sign(sign_idx):
+        return (sign_idx - lagna_sign_idx) % 12 + 1
+
+    # ── Group planets by SIGN index (Odia rule) ───────────────────
+    sign_cells = {i: [] for i in range(12)}
     for pname, pdata in planet_data.items():
-        full_deg = pdata.get('full_degree') if isinstance(pdata, dict) else pdata
-
-        if isinstance(pdata, dict):
-            hnum = pdata.get('house_whole') or get_house_number_from_degree(full_deg, house_cusps_degrees)
-        else:
-            hnum = get_house_number_from_degree(full_deg, house_cusps_degrees)
-
-        label = _planet_abbr(pname)
-        
-        if show_pada:
+        try:
+            full_deg  = float(pdata['full_degree'] if isinstance(pdata, dict)
+                              else pdata) % 360.0
+        except Exception:
+            continue
+        sign_idx = int(full_deg / 30) % 12
+        label    = _planet_abbr(pname)
+        if show_pada and isinstance(pdata, dict):
             p = pdata.get('pada')
             if p:
                 label = f"{label} p{p}"
-        
-        houses[hnum].append((pname, label))
-    
-    # Load fonts
-    try:
-        house_font_size = max(10, int(size * 0.018))
-        planet_font_size = max(11, int(size * 0.030))
-        font_house = ImageFont.truetype("DejaVuSans-Bold.ttf", size=house_font_size)
-        font_planet = ImageFont.truetype("DejaVuSans-Bold.ttf", size=planet_font_size)
-        font_small = ImageFont.truetype("DejaVuSans.ttf", size=max(9, int(size * 0.014)))
-    except:
-        font_house = ImageFont.load_default()
-        font_planet = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-    
-    # Draw house 1 label
-    h1_x, h1_y, _ = positions.get(1, (ox + 1.5*cell, oy + 2.68*cell, 'center'))
-    label = "1"
-    
-    try:
-        hb = draw.textbbox((0, 0), label, font=font_house)
-        hw, hh = hb[2] - hb[0], hb[3] - hb[1]
-    except AttributeError:
-        hw, hh = draw.textsize(label, font=font_house)
-    
-    margin = max(6, int(size * 0.01))
-    tx = h1_x - hw / 2
-    ty = h1_y - hh / 2
-    
-    draw.rectangle([tx - 4, ty - 2, tx + hw + 4, ty + hh + 2], fill=bg)
-    draw.text((tx, ty), label, fill=house_num_color, font=font_house)
-    
-    # Draw planets
-    for h in range(1, 13):
-        items = houses[h]
+        sign_cells[sign_idx].append((pname, label))
+
+    # ── Helper: measure text ──────────────────────────────────────
+    def text_size(txt, fnt):
+        try:
+            bb = draw.textbbox((0, 0), txt, font=fnt)
+            return bb[2] - bb[0], bb[3] - bb[1]
+        except AttributeError:
+            return draw.textsize(txt, font=fnt)
+
+    # ── Draw house number labels at cell anchor points ─────────────
+    # For each sign position, draw a small house-number label
+    # slightly above-left of the planet area
+    LABEL_OFFSET = {
+        'center': (0, -int(cell * 0.30)),
+        'left':   (int(cell * 0.06), -int(cell * 0.30)),
+        'right':  (-int(cell * 0.06), -int(cell * 0.30)),
+    }
+    # Track which cell areas already got a house label (skip duplicates in same cell)
+    labeled_cells = set()
+    CELL_OF_SIGN = {
+        0: 'TC', 1: 'TC',   # Aries+Taurus → top-center
+        2: 'TL',             # Gemini → top-left
+        3: 'ML',             # Cancer → mid-left
+        4: 'BL', 5: 'BL',   # Leo+Virgo → bot-left
+        6: 'BC', 7: 'BC',   # Libra+Scorpio → bot-center
+        8: 'BR', 9: 'BR',   # Sag+Cap → bot-right
+        10: 'MR',            # Aquarius → mid-right
+        11: 'TR',            # Pisces → top-right
+    }
+    # Cell label anchor positions (one per cell, for house number badge)
+    CELL_LABEL_POS = {
+        'TC': (ox + 1.50*cell, oy + 0.08*cell, 'center'),
+        'TL': (ox + 0.08*cell, oy + 0.08*cell, 'left'),
+        'TR': (ox + 2.92*cell, oy + 0.08*cell, 'right'),
+        'ML': (ox + 0.08*cell, oy + 1.08*cell, 'left'),
+        'MR': (ox + 2.92*cell, oy + 1.08*cell, 'right'),
+        'BL': (ox + 0.08*cell, oy + 2.08*cell, 'left'),
+        'BC': (ox + 1.50*cell, oy + 2.08*cell, 'center'),
+        'BR': (ox + 2.92*cell, oy + 2.08*cell, 'right'),
+    }
+
+    for sign_idx in range(12):
+        cell_key = CELL_OF_SIGN[sign_idx]
+        hnum     = house_of_sign(sign_idx)
+        # For two-sign cells draw both house numbers on first visit only
+        if cell_key in labeled_cells:
+            continue
+        # Collect all house numbers in this cell
+        cell_signs = [s for s, c in CELL_OF_SIGN.items() if c == cell_key]
+        hnums_in_cell = sorted(house_of_sign(s) for s in cell_signs)
+        label_txt = " / ".join(str(h) for h in hnums_in_cell)
+        lx, ly, anchor = CELL_LABEL_POS[cell_key]
+        lw, lh = text_size(label_txt, font_house)
+        if anchor == 'center':
+            tx = lx - lw / 2
+        elif anchor == 'right':
+            tx = lx - lw
+        else:
+            tx = lx
+        draw.text((tx, ly), label_txt, fill=house_color, font=font_house)
+        labeled_cells.add(cell_key)
+
+    # ── Draw planets ──────────────────────────────────────────────
+    line_gap = max(3, int(size * 0.010))
+
+    for sign_idx in range(12):
+        items = sign_cells[sign_idx]
         if not items:
             continue
-        
-        x, y, anchor = positions.get(h, (ox + 1.5*cell, oy + 1.5*cell, 'center'))
+
+        px, py, anchor = SIGN_POS[sign_idx]
         labels = [lab for (_, lab) in items]
-        
-        line_heights = []
+
+        # Measure total height stack
+        heights = []
         for lab in labels:
-            try:
-                bbox = draw.textbbox((0, 0), lab, font=font_planet)
-                lh = bbox[3] - bbox[1]
-            except AttributeError:
-                _, lh = draw.textsize(lab, font=font_planet)
-            line_heights.append(lh)
-        
-        total_h = sum(line_heights) + (len(line_heights) - 1) * int(size * 0.01)
-        start_y = y - (total_h / 2)
-        cur_y = start_y
-        
-        for idx, lab in enumerate(labels):
-            try:
-                bbox = draw.textbbox((0, 0), lab, font=font_planet)
-                w = bbox[2] - bbox[0]
-                hgt = bbox[3] - bbox[1]
-            except AttributeError:
-                w, hgt = draw.textsize(lab, font=font_planet)
-            
+            _, lh = text_size(lab, font_planet)
+            heights.append(lh)
+        total_h = sum(heights) + line_gap * (len(heights) - 1)
+        cur_y   = py - total_h / 2
+
+        for lab, lh in zip(labels, heights):
+            lw, _ = text_size(lab, font_planet)
             if anchor == 'left':
-                txp = x
+                txp = px + int(cell * 0.04)
             elif anchor == 'right':
-                txp = x - w
+                txp = px - lw - int(cell * 0.04)
             else:
-                txp = x - (w / 2.0)
-            
+                txp = px - lw / 2
+
             draw.text((txp, cur_y), lab, fill=planet_color, font=font_planet)
-            
-            try:
-                circle_r = max(3, int(size * 0.006))
-                draw.ellipse((txp - circle_r*2 - 2, cur_y + hgt/2 - circle_r, 
-                            txp - 2, cur_y + hgt/2 + circle_r), fill=planet_color)
-            except:
-                pass
-            
-            cur_y += hgt + int(size * 0.01)
-    
-    # Add footer note
-    note = "House 1 shown. Degrees hidden. Generated by AstroGen."
-    try:
-        nb = draw.textbbox((0, 0), note, font=font_small)
-        nw = nb[2] - nb[0]
-    except AttributeError:
-        nw, _ = draw.textsize(note, font=font_small)
-    
-    draw.text((size - pad - nw, size - pad + 2), note, fill=(70, 70, 70), font=font_small)
-    
+            cur_y += lh + line_gap
+
     buf = io.BytesIO()
     im.save(buf, format="PNG")
     return buf.getvalue()
@@ -1282,6 +1528,188 @@ def _ai_pdf_summary(chart_data: dict, birth_data: dict) -> str | None:
         return text if text else None
     except Exception:
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# NEW FEATURE: MUHURTHA KALAS (Rahu Kalam / Yama Kantam / Gulika Kalam)
+# ═══════════════════════════════════════════════════════════════════════
+
+def _get_sunrise_sunset_jd(date_val, lat, lng):
+    """Return (jd_rise, jd_set) for the given date/location using SwissEph rise_trans."""
+    try:
+        jd_start = swe.julday(date_val.year, date_val.month, date_val.day, 0.0)
+        geopos = (float(lng), float(lat), 0.0)   # swisseph: longitude first, then latitude
+        rc_r, tret_r = swe.rise_trans(jd_start, swe.SUN, b"", swe.FLG_SWIEPH, 1, geopos, 1013.25, 15.0)
+        rc_s, tret_s = swe.rise_trans(jd_start, swe.SUN, b"", swe.FLG_SWIEPH, 2, geopos, 1013.25, 15.0)
+        if rc_r >= 0 and rc_s >= 0 and tret_r[0] > 0 and tret_s[0] > 0:
+            return tret_r[0], tret_s[0]
+    except Exception:
+        pass
+    # Fallback: approximate 6am / 6pm offset by longitude
+    lng_h = float(lng) / 15.0
+    jd_noon = swe.julday(date_val.year, date_val.month, date_val.day, 12.0 - lng_h)
+    return jd_noon - 0.25, jd_noon + 0.25
+
+
+def _jd_to_local_dt(jd, tz_name):
+    """Convert a Julian Day (UT) to a timezone-aware local datetime."""
+    y, m, d, h = swe.revjul(jd)
+    hh = int(h); mm = int((h - hh) * 60); ss = int(((h - hh) * 60 - mm) * 60)
+    utc_dt = datetime(int(y), int(m), int(d), hh, mm, ss, tzinfo=pytz.utc)
+    try:
+        return utc_dt.astimezone(pytz.timezone(tz_name))
+    except Exception:
+        return utc_dt
+
+
+def compute_muhurtha_kalas(date_val, lat, lng, tz_name="Asia/Kolkata"):
+    """
+    Compute Rahu Kalam, Yama Kantam and Gulika Kalam for a given date and location.
+    The daytime (sunrise → sunset) is divided into 8 equal slots.
+    Slot assignments follow the standard Vedic weekday tables.
+    Returns a dict, or None on failure.
+    """
+    jd_rise, jd_set = _get_sunrise_sunset_jd(date_val, lat, lng)
+    if jd_rise is None or jd_set is None:
+        return None
+    sunrise_local = _jd_to_local_dt(jd_rise, tz_name)
+    sunset_local  = _jd_to_local_dt(jd_set,  tz_name)
+    day_secs = (sunset_local - sunrise_local).total_seconds()
+    if day_secs <= 0:
+        return None
+    slot = timedelta(seconds=day_secs / 8)
+    # Python weekday(): Mon=0 … Sun=6 → convert to astro (Sun=0 Mon=1 … Sat=6)
+    astro_day = (date_val.weekday() + 1) % 7
+    RAHU_SLOTS   = [8, 2, 7, 5, 6, 4, 3]
+    YAMA_SLOTS   = [5, 4, 3, 2, 1, 7, 6]
+    GULIKA_SLOTS = [7, 6, 5, 4, 3, 2, 1]
+    def window(n):
+        s = sunrise_local + slot * (n - 1)
+        return s, s + slot
+    return {
+        'date':         date_val,
+        'sunrise':      sunrise_local,
+        'sunset':       sunset_local,
+        'rahu_kalam':   window(RAHU_SLOTS[astro_day]),
+        'yama_kantam':  window(YAMA_SLOTS[astro_day]),
+        'gulika_kalam': window(GULIKA_SLOTS[astro_day]),
+        'tz_name':      tz_name,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# NEW FEATURE: KP SIGNIFICATORS
+# ═══════════════════════════════════════════════════════════════════════
+
+def compute_kp_significators(chart_result):
+    """
+    KP Significators: for each planet determine which houses it signifies.
+      Level 1 – directly occupies the house
+      Level 2 – is the star-lord (nakshatra lord) of a planet occupying a house
+      Level 3 – owns the house via sign lordship
+    Returns dict: planet_name → {occupied_house, owned_houses, signified_houses}
+    """
+    planets    = chart_result.get('planets', {}) or {}
+    houses     = chart_result.get('houses',  {}) or {}
+    house_keys = ['1st (Lagna)', '2nd', '3rd', '4th', '5th', '6th',
+                  '7th', '8th', '9th', '10th', '11th', '12th']
+    # house_no (int) → occupant planet names
+    occupants = {i: [] for i in range(1, 13)}
+    for pname, pdata in planets.items():
+        h = pdata.get('house_whole') or pdata.get('house_cuspal')
+        try:
+            occupants[int(h)].append(pname)
+        except (TypeError, ValueError):
+            pass
+    # planet → list of house numbers it owns via sign lordship
+    planet_owns = {p: [] for p in
+                   ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']}
+    for i, hkey in enumerate(house_keys, 1):
+        sign = (houses.get(hkey) or {}).get('sign', '')
+        sl   = SIGN_RULERS.get(sign, '')
+        if sl in planet_owns:
+            planet_owns[sl].append(i)
+    result = {}
+    for pname, pdata in planets.items():
+        h_occ = pdata.get('house_whole') or pdata.get('house_cuspal')
+        h_own = planet_owns.get(pname, [])
+        sigs  = set()
+        try:
+            sigs.add(int(h_occ))
+        except (TypeError, ValueError):
+            pass
+        sigs.update(h_own)
+        for hno, occs in occupants.items():
+            for occ in occs:
+                if (planets.get(occ) or {}).get('nakshatra_lord') == pname:
+                    sigs.add(hno)
+        result[pname] = {
+            'occupied_house':   h_occ,
+            'owned_houses':     sorted(h_own),
+            'signified_houses': sorted(sigs),
+        }
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# NEW FEATURE: CURRENT TRANSITS
+# ═══════════════════════════════════════════════════════════════════════
+
+def compute_current_transits(natal_chart):
+    """
+    Compute current sidereal planetary positions using Lahiri ayanamsa —
+    the same ayanamsa as the natal chart. Zero risk of calculation drift.
+    Returns dict: planet_name → transit data with natal comparison fields.
+    """
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    now    = datetime.utcnow()
+    jd_now = swe.julday(now.year, now.month, now.day,
+                        now.hour + now.minute / 60.0 + now.second / 3600.0)
+    PLANET_IDS = {
+        'Sun': swe.SUN, 'Moon': swe.MOON, 'Mars': swe.MARS,
+        'Mercury': swe.MERCURY, 'Jupiter': swe.JUPITER,
+        'Venus': swe.VENUS, 'Saturn': swe.SATURN, 'Rahu': swe.TRUE_NODE,
+    }
+    natals = natal_chart.get('planets', {}) or {}
+    result = {}
+    for pname, pid in PLANET_IDS.items():
+        try:
+            res, _ = swe.calc_ut(jd_now, pid, swe.FLG_SWIEPH | swe.FLG_SIDEREAL)
+            lon    = float(res[0]) % 360.0
+            sign, deg_in = deg_to_sign_index_and_offset(lon)
+            nak_name, nak_lord, _, _ = get_nakshatra_and_pada(lon)
+            nat = natals.get(pname) or {}
+            result[pname] = {
+                'full_degree':     lon,
+                'sign':            sign,
+                'degree':          decdeg_to_dms_string(deg_in),
+                'nakshatra':       nak_name,
+                'nakshatra_lord':  nak_lord,
+                'sublord':         get_sublord_kp_standard(lon),
+                'natal_sign':      nat.get('sign',      '–'),
+                'natal_degree':    nat.get('degree',     '–'),
+                'natal_nakshatra': nat.get('nakshatra',  '–'),
+            }
+        except Exception:
+            pass
+    # Ketu = Rahu + 180°
+    if 'Rahu' in result:
+        ketu_lon = (result['Rahu']['full_degree'] + 180.0) % 360.0
+        sign, deg_in = deg_to_sign_index_and_offset(ketu_lon)
+        nak_name, nak_lord, _, _ = get_nakshatra_and_pada(ketu_lon)
+        nat_k = natals.get('Ketu') or {}
+        result['Ketu'] = {
+            'full_degree':     ketu_lon,
+            'sign':            sign,
+            'degree':          decdeg_to_dms_string(deg_in),
+            'nakshatra':       nak_name,
+            'nakshatra_lord':  nak_lord,
+            'sublord':         get_sublord_kp_standard(ketu_lon),
+            'natal_sign':      nat_k.get('sign',     '–'),
+            'natal_degree':    nat_k.get('degree',    '–'),
+            'natal_nakshatra': nat_k.get('nakshatra', '–'),
+        }
+    return result
 
 
 def generate_pdf_report(birth_data, chart_data, name=None, numerology=None, include_ai_summary: bool = False):
@@ -1497,46 +1925,219 @@ def generate_pdf_report(birth_data, chart_data, name=None, numerology=None, incl
     # --- FINAL ADJUSTMENT: Match Reference Image Structure and Values ---
     if raw_dashas:
         story.append(Spacer(1, 0.2*inch))
-        story.append(Paragraph("Vimshottari Dasha: Mahadasha > Antardasha > Pratyantardasha", styles['Heading3']))
-        
-        # Flattened table to match image columns: DASA, BHUKTI, ANTARDASA, DATE, MONTH, YEAR
-        # Note: Your naming request (Antardasha/Pratyantardasha) is mapped to image's BHUKTI/ANTARDASA
-        dash_table_data = [["DASA", "ANTARDASHA", "PRATYANTARDASHA", "DATE", "MONTH", "YEAR"]]
+        story.append(Paragraph("Vimshottari Dasha: Complete Life Timeline (Mahadasha & Antardasha)", styles['Heading3']))
 
+        dash_table_data = [["MAHADASHA", "MAHA PERIOD", "YRS", "ANTARDASHA", "ANTAR PERIOD", "YRS"]]
+        now_dt = datetime.now()
         for maha in raw_dashas:
-            # Filter for the relevant window seen in image (2024-2030)
-            if maha['end'].year < 2024: continue
-            if maha['start'].year > 2032: break
-            
             antars = compute_antardashas(maha)
+            first_row = True
             for antar in antars:
-                pratyantars = compute_pratyantardashas(antar)
-                for p in pratyantars:
-                    # One row per change to match the image format
-                    dash_table_data.append([
-                        maha['lord'].upper(),
-                        antar['lord'].upper(), # Level 2
-                        p['lord'].upper(),     # Level 3
-                        p['start'].strftime('%d'),
-                        p['start'].strftime('%m'),
-                        p['start'].strftime('%Y')
-                    ])
+                is_cur_antar = antar['start'] <= now_dt <= antar['end']
+                maha_cell   = maha['lord'].upper() if first_row else ""
+                maha_period = (f"{maha['start'].strftime('%b %Y')} \u2013 {maha['end'].strftime('%b %Y')}"
+                               if first_row else "")
+                maha_yrs    = f"{maha['years']:.1f}" if first_row else ""
+                dash_table_data.append([
+                    maha_cell,
+                    maha_period,
+                    maha_yrs,
+                    antar['lord'].upper() + (" \u25c0" if is_cur_antar else ""),
+                    f"{antar['start'].strftime('%b %Y')} \u2013 {antar['end'].strftime('%b %Y')}",
+                    f"{antar['years']:.1f}",
+                ])
+                first_row = False
 
-        # Widths adjusted for the 6-column "Uncle's Report" style
-        dt = Table(dash_table_data, colWidths=[1.1*inch, 1.2*inch, 1.5*inch, 0.6*inch, 0.7*inch, 0.8*inch], repeatRows=1)
-        dt.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EDECEC')),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ('FONTSIZE', (0,0), (-1,-1), 8),
-            ('ALIGN', (3,0), (-1,-1), 'CENTER'), # Center Date/Month/Year
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ]))
+        dt_style_cmds = [
+            ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#8B4513')),
+            ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+            ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0, 0), (-1, -1), 8),
+            ('GRID',          (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
+            ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING',    (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('ALIGN',         (2, 0), (2,  -1), 'CENTER'),
+            ('ALIGN',         (5, 0), (5,  -1), 'CENTER'),
+        ]
+        for i in range(1, len(dash_table_data)):
+            bg = colors.HexColor('#FDF8F0') if i % 2 == 0 else colors.white
+            if '\u25c0' in str(dash_table_data[i][3]):
+                bg = colors.HexColor('#FFE8C0')
+            dt_style_cmds.append(('BACKGROUND', (0, i), (-1, i), bg))
+        dt = Table(dash_table_data,
+                   colWidths=[0.95*inch, 1.4*inch, 0.45*inch, 0.95*inch, 1.4*inch, 0.45*inch],
+                   repeatRows=1)
+        dt.setStyle(TableStyle(dt_style_cmds))
         story.append(dt)
-
 
         story.append(Spacer(1, 0.1*inch))
 
+    # ── KP Significators ────────────────────────────────────────────
+    try:
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph("KP Significators", styles['Heading3']))
+        sig_data = compute_kp_significators(chart_data)
+        sig_rows = [["PLANET", "OCCUPIED HOUSE", "OWNED HOUSES", "SIGNIFIED HOUSES"]]
+        for pname in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+            s = sig_data.get(pname)
+            if not s:
+                continue
+            sig_rows.append([
+                pname,
+                str(s['occupied_house']) if s['occupied_house'] else "–",
+                ", ".join(str(h) for h in s['owned_houses'])     or "–",
+                ", ".join(str(h) for h in s['signified_houses']) or "–",
+            ])
+        sig_t = Table(sig_rows, colWidths=[1.1*inch, 1.3*inch, 1.4*inch, 2.2*inch], repeatRows=1)
+        sig_cmds = [
+            ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#8B4513')),
+            ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+            ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0, 0), (-1, -1), 8.5),
+            ('GRID',          (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
+            ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING',    (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]
+        for i in range(1, len(sig_rows)):
+            sig_cmds.append(('BACKGROUND', (0, i), (-1, i),
+                             colors.HexColor('#FDF8F0') if i % 2 == 0 else colors.white))
+        sig_t.setStyle(TableStyle(sig_cmds))
+        story.append(sig_t)
+    except Exception as _e:
+        story.append(Paragraph(f"KP Significators unavailable: {_e}", styles['Normal']))
 
+    # ── Current Transits ────────────────────────────────────────────
+    try:
+        story.append(Spacer(1, 0.2*inch))
+        story.append(Paragraph(
+            f"Current Planetary Transits  ({datetime.now().strftime('%d %b %Y')})",
+            styles['Heading3']))
+        transits = compute_current_transits(chart_data)
+        tr_rows  = [["PLANET", "TRANSIT SIGN", "TRANSIT NAK.", "SUBLORD", "NATAL SIGN", "NATAL NAK."]]
+        for pname in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+            t = transits.get(pname)
+            if not t:
+                continue
+            tr_rows.append([
+                pname,
+                t.get('sign',            '–'),
+                t.get('nakshatra',        '–'),
+                t.get('sublord',          '–'),
+                t.get('natal_sign',       '–'),
+                t.get('natal_nakshatra',  '–'),
+            ])
+        tr_t = Table(tr_rows, colWidths=[0.85*inch, 0.9*inch, 1.1*inch, 1.0*inch, 0.9*inch, 1.25*inch], repeatRows=1)
+        tr_cmds = [
+            ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#2c4a7c')),
+            ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+            ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+            ('FONTSIZE',      (0, 0), (-1, -1), 8),
+            ('GRID',          (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
+            ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING',    (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]
+        for i in range(1, len(tr_rows)):
+            tr_cmds.append(('BACKGROUND', (0, i), (-1, i),
+                            colors.HexColor('#F0F4F8') if i % 2 == 0 else colors.white))
+        tr_t.setStyle(TableStyle(tr_cmds))
+        story.append(tr_t)
+    except Exception as _e:
+        story.append(Paragraph(f"Transits unavailable: {_e}", styles['Normal']))
+
+    # ── Muhurtha Kalas for today ─────────────────────────────────────
+    try:
+        story.append(Spacer(1, 0.2*inch))
+        today = datetime.now().date()
+        loc   = chart_data.get('location', {}) or {}
+        tz_nm = loc.get('tz_name', 'Asia/Kolkata')
+        mk    = compute_muhurtha_kalas(today, loc.get('lat', 20.0), loc.get('lng', 78.0), tz_nm)
+        if mk:
+            story.append(Paragraph(
+                f"Daily Muhurtha Kalas  —  {today.strftime('%A, %d %b %Y')}  ({tz_nm})",
+                styles['Heading3']))
+            def _fmt(pair):
+                s, e = pair
+                return f"{s.strftime('%I:%M %p')} \u2013 {e.strftime('%I:%M %p')}"
+            mk_rows = [
+                ["KALA",         "TIME",                         "GUIDANCE"],
+                ["Sunrise",      mk['sunrise'].strftime('%I:%M %p'), "Start of daytime"],
+                ["Rahu Kalam",   _fmt(mk['rahu_kalam']),         "Avoid new beginnings / important decisions"],
+                ["Yama Kantam",  _fmt(mk['yama_kantam']),        "Inauspicious for travel & new ventures"],
+                ["Gulika Kalam", _fmt(mk['gulika_kalam']),       "Avoid auspicious ceremonies"],
+                ["Sunset",       mk['sunset'].strftime('%I:%M %p'), "End of daytime"],
+            ]
+            mk_t = Table(mk_rows, colWidths=[1.3*inch, 1.7*inch, 3.0*inch], repeatRows=1)
+            mk_cmds = [
+                ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#4a3728')),
+                ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+                ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+                ('GRID',          (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
+                ('FONTSIZE',      (0, 0), (-1, -1), 8.5),
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 4),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ('BACKGROUND',    (0, 2), (-1,  4), colors.HexColor('#FFF5E6')),
+            ]
+            mk_t.setStyle(TableStyle(mk_cmds))
+            story.append(mk_t)
+    except Exception as _e:
+        story.append(Paragraph(f"Muhurtha Kalas unavailable: {_e}", styles['Normal']))
+
+    # ── Pratyantardasha Detail (Jan 2023 onwards) ────────────────────
+    try:
+        _raw_praty = (chart_data.get('dashas') or {}).get('raw') or []
+        if _raw_praty:
+            praty_window_start = datetime.now() - timedelta(days=365.25 * 3)
+            praty_window_end   = datetime.now() + timedelta(days=365.25 * 8)
+            story.append(Spacer(1, 0.25*inch))
+            story.append(Paragraph(
+                f"Pratyantardasha Detail  ({praty_window_start.strftime('%b %Y')} \u2013 {praty_window_end.strftime('%b %Y')})",
+                styles['Heading3']))
+            praty_data = [["DASA", "ANTARDASHA", "PRATYANTARDASHA", "DATE", "MONTH", "YEAR"]]
+            for maha in _raw_praty:
+                if not isinstance(maha.get('start'), datetime) or not isinstance(maha.get('end'), datetime):
+                    continue
+                if maha['end'] < praty_window_start or maha['start'] > praty_window_end:
+                    continue
+                for antar in compute_antardashas(maha):
+                    if antar['end'] < praty_window_start or antar['start'] > praty_window_end:
+                        continue
+                    for p in compute_pratyantardashas(antar):
+                        if p['end'] < praty_window_start or p['start'] > praty_window_end:
+                            continue
+                        praty_data.append([
+                            maha['lord'].upper(),
+                            antar['lord'].upper(),
+                            p['lord'].upper(),
+                            p['start'].strftime('%d'),
+                            p['start'].strftime('%m'),
+                            p['start'].strftime('%Y'),
+                        ])
+            praty_cmds = [
+                ('BACKGROUND',    (0, 0), (-1,  0), colors.HexColor('#4a3728')),
+                ('TEXTCOLOR',     (0, 0), (-1,  0), colors.white),
+                ('FONTNAME',      (0, 0), (-1,  0), 'Helvetica-Bold'),
+                ('FONTSIZE',      (0, 0), (-1, -1), 7.5),
+                ('GRID',          (0, 0), (-1, -1), 0.4, colors.HexColor('#CCCCCC')),
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 2),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+                ('ALIGN',         (3, 0), (-1, -1), 'CENTER'),
+            ]
+            for i in range(1, len(praty_data)):
+                praty_cmds.append(('BACKGROUND', (0, i), (-1, i),
+                                   colors.HexColor('#FDF8F0') if i % 2 == 0 else colors.white))
+            pt = Table(praty_data,
+                       colWidths=[1.1*inch, 1.2*inch, 1.5*inch, 0.6*inch, 0.65*inch, 0.75*inch],
+                       repeatRows=1)
+            pt.setStyle(TableStyle(praty_cmds))
+            story.append(pt)
+            story.append(Spacer(1, 0.1*inch))
+    except Exception as _e:
+        story.append(Paragraph(f"Pratyantardasha unavailable: {_e}", styles['Normal']))
 
     doc.build(story)
     buffer.seek(0)
@@ -1725,7 +2326,7 @@ def _org_ai_report(
                 {
                     "role": "system",
                     "content": (
-                        "You are Yogi Baba, an astrologer who can do foundation-chart style readings for organizations "
+                        "You are AstroGen, an astrologer who can do foundation-chart style readings for organizations "
                         "(political parties, football clubs, sports teams, companies). "
                         "Be practical, concise, and non-inflammatory. "
                         "Do NOT provide targeted persuasion, endorsements, or instructions for wrongdoing. "
@@ -2146,7 +2747,7 @@ def render_org_analysis_section() -> None:
             st.session_state.pop("org_memory", None)
             st.rerun()
 
-    with st.expander("Open organisation / team analysis", expanded=True):
+    with st.expander("Open organisation / team analysis", expanded=False):
         with st.form("org_form", clear_on_submit=False):
             c1, c2 = st.columns([1.2, 1], gap="medium")
             with c1:
@@ -2326,7 +2927,6 @@ with st.form("birth_form", clear_on_submit=False):
 render_org_analysis_section()
 
 if not submitted and "chart_result" not in st.session_state:
-    st.info("Enter birth details and press Generate")
     st.stop()
     
 # Validate inputs
@@ -2406,270 +3006,12 @@ with st.spinner("Calculating comprehensive KP chart..."):
     'include_ai_summary': include_individual_ai_summary,
     }
 
-    # DEBUG: Show key values for verification
-    with st.expander("🔍 Debug Info - Verify Calculations", expanded=False):
-        st.write(f"**Ayanamsa:** {chart_result.get('ayanamsa', 'N/A'):.6f}°")
-        st.write(f"**Ascendant (sidereal):** {chart_result['asc_degree']:.6f}°")
-        
-        # Show sublord calculation details for Ascendant
-        asc_deg = chart_result['asc_degree']
-        nak_width = 360.0 / 27.0
-        nak_idx = int(asc_deg / nak_width)
-        inside_nak = asc_deg - (nak_idx * nak_width)
-        inside_minutes = inside_nak * 60.0
-        
-        nak_name, nak_lord = NAKSHATRAS[nak_idx]
-        st.write(f"**Asc Nakshatra:** {nak_name} (Lord: {nak_lord})")
-        st.write(f"**Position in Nak:** {inside_nak:.4f}° = {inside_minutes:.2f} arc-minutes")
-        st.write(f"**Calculated Sublord:** {chart_result['houses']['1st (Lagna)']['sublord']}")
-        
-        st.write("**Planetary Longitudes (sidereal):**")
-        for pname in ['Sun', 'Moon', 'Mars', 'Mercury', 'Venus']:
-            if pname in chart_result['planets']:
-                pdata = chart_result['planets'][pname]
-                st.write(f"  - {pname}: {pdata['full_degree']:.6f}° → Sublord: {pdata['sublord']}")
 
 # ========== DISPLAY RESULTS ==========
 import html
 
-# Common CSS for both tables
-common_css = """
-<style>
-:root {
-  --table-border: #555;
-  --table-header-bg: #2c2c2c;
-  --table-header-text: #f0f0f0;
-  --table-row-even-bg: #1e1e1e;
-  --table-row-odd-bg: #292929;
-  --table-text-color: #f0f0f0;
-  --note-color: #ccc;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --table-border: #999;
-    --table-header-bg: #eae6df;
-    --table-header-text: #111;
-    --table-row-even-bg: #f9f9f9;
-    --table-row-odd-bg: #ffffff;
-    --table-text-color: #000;
-    --note-color: #555;
-  }
-}
-
-.summary-table {
-  border-collapse: collapse;
-  width: 100%;
-  max-width: 900px;
-  color: var(--table-text-color);
-  margin-top: 6px;
-}
-.summary-table th, .summary-table td {
-  padding: 7px 10px;
-  border: 1px solid var(--table-border);
-  text-align: left;
-}
-.summary-table th {
-  background: var(--table-header-bg);
-  color: var(--table-header-text);
-  font-weight: 700;
-}
-.summary-note {
-  color: var(--note-color);
-  font-size: 12px;
-  margin-top: 4px;
-}
-
-.kp-table {
-  border-collapse: collapse;
-  width: 100%;
-  max-width: 1100px;
-  margin-top: 10px;
-  color: var(--table-text-color);
-  font-size: 14.5px;
-}
-.kp-table th, .kp-table td {
-  padding: 7px 9px;
-  border: 1px solid var(--table-border);
-  text-align: center;
-}
-.kp-table th {
-  background: var(--table-header-bg);
-  color: var(--table-header-text);
-  font-weight: 700;
-  text-transform: c talize;
-}
-.kp-table tbody tr:nth-child(even) {
-  background-color: var(--table-row-even-bg);
-}
-.kp-table tbody tr:nth-child(odd) {
-  background-color: var(--table-row-odd-bg);
-}
-.kp-table tbody tr td:first-child {
-  font-weight: 600;
-  text-align: left;
-  padding-left: 12px;
-}
-</style>
-"""
-st.markdown(common_css, unsafe_allow_html=True)
-
-# Summary table
-try:
-    sun_trop = chart_result.get('tropical', {}).get('Sun')
-    moon_trop = chart_result.get('tropical', {}).get('Moon')
-    sun_kp = chart_result['planets']['Sun']['full_degree']
-    moon_kp = chart_result['planets']['Moon']['full_degree']
-    asc_kp = chart_result['asc_degree']
-    ayanamsa = chart_result.get('ayanamsa', 24.0)
-
-    if sun_trop is not None:
-        st.markdown("### 🌙 Moonshine · Lagna · Sunshine Summary (Tropical & KP)")
-
-        def full_deg_to_sign_dms(full_deg):
-            dd = float(full_deg) % 360.0
-            sign_index = int(dd // 30)
-            deg_in_sign = dd - sign_index * 30
-            deg_text = decdeg_to_dms_string(deg_in_sign)
-            return SIGNS[sign_index], deg_text
-
-        s_sign, s_txt = full_deg_to_sign_dms(sun_trop)
-        m_sign, m_txt = full_deg_to_sign_dms(moon_trop) if moon_trop else ("", "")
-        sk_sign, sk_txt = full_deg_to_sign_dms(sun_kp)
-        mk_sign, mk_txt = full_deg_to_sign_dms(moon_kp)
-        asc_sign, asc_txt = full_deg_to_sign_dms(asc_kp)
-
-        summary_html = f"""
-        <table class="summary-table">
-          <thead>
-            <tr>
-              <th>Aspect</th><th>Sign & Degree</th><th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>🌞 Tropical Sun</td><td>{html.escape(s_sign + ' ' + s_txt)}</td><td>Western (Tropical) Sun</td></tr>
-            <tr><td>🌙 Tropical Moon</td><td>{html.escape(m_sign + ' ' + m_txt)}</td><td>Western (Tropical) Moon</td></tr>
-            <tr><td>🌞 KP / Sidereal Sun</td><td>{html.escape(sk_sign + ' ' + sk_txt)}</td><td>KP (Sidereal) Sun</td></tr>
-            <tr><td>🌙 KP / Sidereal Moon</td><td>{html.escape(mk_sign + ' ' + mk_txt)}</td><td>KP (Sidereal) Moon</td></tr>
-            <tr><td>🏠 Lagna (Ascendant)</td><td>{html.escape(asc_sign + ' ' + asc_txt)}</td><td>KP Ascendant (House 1)</td></tr>
-          </tbody>
-        </table>
-        <div class="summary-note">
-          Ayanamsa: {ayanamsa:.2f}° · Timezone: {html.escape(chart_result['location'].get('tz_name','UTC'))} ·
-          Lat: {chart_result['location']['lat']:.3f}, Lng: {chart_result['location']['lng']:.3f}
-        </div>
-        """
-        st.markdown(summary_html, unsafe_allow_html=True)
-except Exception as e:
-    st.error(f"Error building summary: {e}")
-
-# Planetary positions table
-# Planetary positions table
-try:
-    # Ensure cuspal sub-lords map is available in this scope
-    csl_all = chart_result.get('cuspal_sublords', {}) or st.session_state.get('cuspal_sublords', {})
-
-    rows = []
-    
-    # Ascendant first - ensure house number variable exists
-    asc_house = chart_result['houses']['1st (Lagna)']
-    hnum = 1  # Ascendant is house 1
-    rows.append({
-        "House": hnum,
-        "Entity": "Asc",
-        "Sign": asc_house.get("sign",""),
-        "Degree": asc_house.get("degree",""),
-        "Position": "",
-        "Lord": SIGN_RULERS.get(asc_house.get("sign",""), ""),
-        "Nakshatra": asc_house.get("nakshatra",""),
-        "Pad": asc_house.get("pada",""),
-        "Nakshatra Lord": asc_house.get("nakshatra_lord",""),
-        "S. Lord": asc_house.get("sublord",""),
-        "Cusp Sublord": csl_all.get("1","") 
-    })
-
-    # Group planets by house
-    house_map = {i: [] for i in range(1,13)}
-    for pname, pdata in chart_result['planets'].items():
-        fd = pdata.get('full_degree')
-        if fd is None:
-            continue
-        hnum = pdata.get('house_whole') or pdata.get('house_cuspal') or get_house_number_whole_sign(float(fd), chart_result['asc_degree'])
-        house_map[int(hnum)].append((pname, pdata))
-    # Add planets in house order
-    for h in range(1, 13):
-        for pname, pdata in house_map[h]:
-            deg_text = pdata.get('degree', '')
-            sign_lord = pdata.get('sign_lord', SIGN_RULERS.get(pdata.get('sign',''), ''))
-            rows.append({
-                "House": h,
-                "Entity": pname + (" (R)" if pname in ("Rahu","Ketu") else ""),
-                "Sign": pdata.get("sign",""),
-                "Degree": deg_text,
-                "Position": pdata.get("position",""),
-                "Lord": sign_lord,
-                "Nakshatra": pdata.get("nakshatra",""),
-                "Pad": pdata.get("pada",""),
-                "Nakshatra Lord": pdata.get("nakshatra_lord",""),
-                "S. Lord": pdata.get("sublord",""),
-                "Cusp Sublord": csl_all.get(str(h), "") 
-            })
-
-    # Render HTML table
-    header_html = """
-    <thead>
-      <tr>
-        <th>House</th><th>Entity</th><th>Sign</th><th>Degree</th><th>Position</th><th>Lord</th>
-        <th>Nakshatra</th><th>Pad</th><th>Nakshatra Lord</th><th>S. Lord</th><th>Cusp Sublord</th>
-      </tr>
-    </thead>
-    """
-    body_html = "<tbody>" + "".join(
-        f"<tr>"
-        f"<td>{html.escape(str(r.get('House','')))}</td>"
-        f"<td>{html.escape(str(r.get('Entity','')))}</td>"
-        f"<td>{html.escape(str(r.get('Sign','')))}</td>"
-        f"<td>{html.escape(str(r.get('Degree','')))}</td>"
-        f"<td>{html.escape(str(r.get('Position','')))}</td>"
-        f"<td>{html.escape(str(r.get('Lord','')))}</td>"
-        f"<td>{html.escape(str(r.get('Nakshatra','')))}</td>"
-        f"<td>{html.escape(str(r.get('Pad','')))}</td>"
-        f"<td>{html.escape(str(r.get('Nakshatra Lord','')))}</td>"
-        f"<td>{html.escape(str(r.get('S. Lord','')))}</td>"
-        f"<td>{html.escape(str(r.get('Cusp Sublord','')))}</td>"
-        f"</tr>"
-        for r in rows
-    ) + "</tbody>"
-
-    table_html = f"<table class='kp-table'>{header_html}{body_html}</table>"
-
-    st.markdown("### 🪐 Planetary Positions (Ordered from Lagna)")
-    st.markdown(table_html, unsafe_allow_html=True)
-except Exception as e:
-    st.error(f"Error building planetary table: {e}")
-
-
-# Optional house cusps - REMOVED (redundant with planetary table)
-# The house cusp information is already shown in the planetary positions table
-
-# Chart image
-st.markdown("### 🗺️ East-Indian Lagna Chart")
-try:
-    png = render_chart_png_bytes_pil(chart_result['planets'], chart_result['house_cusps_degrees'], size=900, show_pada=True)
-    st.image(png, width='stretch')
-except Exception as e:
-    st.error(f"Chart render error: {e}")
-
-# Dasha
-st.markdown("### ⏰ Vimshottari Dasha")
-d = chart_result['dashas']
-if d.get('current'):
-    st.markdown(f"**Current:** {d['current']['lord']} — {d['current']['start']} to {d['current']['end']} ({d['current']['years']} years)")
-if d.get('upcoming'):
-    st.markdown(f"**Upcoming:** {d['upcoming']['lord']} — starts {d['upcoming']['start']} ({d['upcoming']['years']} years)")
-
-# Numerology
-name_val = name_input.strip()
+# ── Pre-compute name / numerology (needed for PDF and display) ──
+name_val   = name_input.strip()
 numerology = {}
 if name_val:
     numerology["name_number"] = numerology_name_number(name_val)
@@ -2677,27 +3019,421 @@ else:
     numerology["name_number"] = None
 numerology["life_path"] = numerology_life_path(dob)
 
-if name_val or numerology.get("life_path"):
-    st.markdown("### 🔢 Numerology")
-    if name_val and numerology.get("name_number"):
-        st.write(f"**Name Number ({name_val}):** {numerology['name_number']}")
-    st.write(f"**Life Path Number:** {numerology['life_path']}")
-
-# PDF download
+# ── PDF at the TOP so users can download without scrolling ──────
 birth_details_for_pdf = st.session_state.get("birth_details") or {}
 pdf_buffer = generate_pdf_report(
-    {'dob':dob,'tob':tob,'place':place,'gender':gender,'tob_display':f"{hour_12}:{minute} {am_pm}"}, 
-    chart_result, 
-    name=name_val, 
+    {'dob': dob, 'tob': tob, 'place': place, 'gender': gender,
+     'tob_display': f"{hour_12}:{minute} {am_pm}"},
+    chart_result,
+    name=name_val,
     numerology=numerology,
     include_ai_summary=bool(birth_details_for_pdf.get("include_ai_summary", False))
 )
 st.download_button(
-    "📥 Download PDF Report", 
-    data=pdf_buffer.getvalue(), 
-    file_name=f"KP_Chart_{dob}_{uuid.uuid4().hex[:6]}.pdf", 
+    "📥 Download PDF Report",
+    data=pdf_buffer.getvalue(),
+    file_name=f"KP_Chart_{dob}_{uuid.uuid4().hex[:6]}.pdf",
     mime="application/pdf"
 )
+st.markdown("---")
+
+# Common CSS for both tables
+common_css = """
+<style>
+/* Table tokens — dark default, light override */
+:root {
+  --table-border:      #2e2920;
+  --table-header-bg:   #2a2318;
+  --table-header-text: #e8e0d0;
+  --table-row-even-bg: #1e1b14;
+  --table-row-odd-bg:  #232019;
+  --table-text-color:  #e0d9cc;
+  --table-accent-bg:   #33280e;
+  --note-color:        #857d72;
+  --table-hover:       rgba(201,150,58,0.10);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --table-border:      #ddd5c4;
+    --table-header-bg:   #f0e9dc;
+    --table-header-text: #2a1f10;
+    --table-row-even-bg: #faf7f3;
+    --table-row-odd-bg:  #ffffff;
+    --table-text-color:  #1c1714;
+    --table-accent-bg:   #fef3e2;
+    --note-color:        #6e665a;
+    --table-hover:       rgba(184,118,42,0.07);
+  }
+}
+
+/* ── Summary table ────────────────────────────────────────── */
+.summary-table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 860px;
+  color: var(--table-text-color);
+  margin-top: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+}
+.summary-table th, .summary-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--table-border);
+  border-right: 1px solid var(--table-border);
+  text-align: left;
+}
+.summary-table th:last-child, .summary-table td:last-child { border-right: none; }
+.summary-table thead tr:last-child th { border-bottom: 2px solid var(--table-border); }
+.summary-table tbody tr:last-child td { border-bottom: none; }
+.summary-table th {
+  background: var(--table-header-bg);
+  color: var(--table-header-text);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.summary-table tbody tr:nth-child(even) { background: var(--table-row-even-bg); }
+.summary-table tbody tr:nth-child(odd)  { background: var(--table-row-odd-bg); }
+.summary-table tbody tr:hover { background: var(--table-hover); }
+.summary-note {
+  color: var(--note-color);
+  font-size: 11.5px;
+  margin-top: 6px;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.02em;
+}
+
+/* ── KP planetary table ───────────────────────────────────── */
+.kp-table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 1200px;
+  margin-top: 12px;
+  color: var(--table-text-color);
+  font-size: 13.5px;
+  font-family: 'Inter', sans-serif;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.kp-table th, .kp-table td {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--table-border);
+  border-right: 1px solid var(--table-border);
+  text-align: center;
+}
+.kp-table th:last-child, .kp-table td:last-child { border-right: none; }
+.kp-table thead tr:last-child th { border-bottom: 2px solid var(--table-border); }
+.kp-table tbody tr:last-child td { border-bottom: none; }
+.kp-table th {
+  background: var(--table-header-bg);
+  color: var(--table-header-text);
+  font-weight: 600;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+.kp-table tbody tr:nth-child(even) { background: var(--table-row-even-bg); }
+.kp-table tbody tr:nth-child(odd)  { background: var(--table-row-odd-bg); }
+.kp-table tbody tr:hover { background: var(--table-hover); transition: background 0.12s; }
+.kp-table tbody tr td:first-child {
+  font-weight: 600;
+  text-align: left;
+  padding-left: 14px;
+}
+</style>
+"""
+st.markdown(common_css, unsafe_allow_html=True)
+
+# ── Expander 1: Summary, Planetary Table, Chart ────────────────
+with st.expander("🪐 Chart Details — Positions, Lagna Chart & Summary", expanded=False):
+    # Summary table
+    try:
+        sun_trop = chart_result.get('tropical', {}).get('Sun')
+        moon_trop = chart_result.get('tropical', {}).get('Moon')
+        sun_kp = chart_result['planets']['Sun']['full_degree']
+        moon_kp = chart_result['planets']['Moon']['full_degree']
+        asc_kp = chart_result['asc_degree']
+        ayanamsa = chart_result.get('ayanamsa', 24.0)
+
+        if sun_trop is not None:
+            st.markdown("### 🌙 Moonshine · Lagna · Sunshine Summary (Tropical & KP)")
+
+            def full_deg_to_sign_dms(full_deg):
+                dd = float(full_deg) % 360.0
+                sign_index = int(dd // 30)
+                deg_in_sign = dd - sign_index * 30
+                deg_text = decdeg_to_dms_string(deg_in_sign)
+                return SIGNS[sign_index], deg_text
+
+            s_sign, s_txt = full_deg_to_sign_dms(sun_trop)
+            m_sign, m_txt = full_deg_to_sign_dms(moon_trop) if moon_trop else ("", "")
+            sk_sign, sk_txt = full_deg_to_sign_dms(sun_kp)
+            mk_sign, mk_txt = full_deg_to_sign_dms(moon_kp)
+            asc_sign, asc_txt = full_deg_to_sign_dms(asc_kp)
+
+            summary_html = f"""
+            <table class="summary-table">
+              <thead>
+                <tr>
+                  <th>Aspect</th><th>Sign & Degree</th><th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>🌞 Tropical Sun</td><td>{html.escape(s_sign + ' ' + s_txt)}</td><td>Western (Tropical) Sun</td></tr>
+                <tr><td>🌙 Tropical Moon</td><td>{html.escape(m_sign + ' ' + m_txt)}</td><td>Western (Tropical) Moon</td></tr>
+                <tr><td>🌞 KP / Sidereal Sun</td><td>{html.escape(sk_sign + ' ' + sk_txt)}</td><td>KP (Sidereal) Sun</td></tr>
+                <tr><td>🌙 KP / Sidereal Moon</td><td>{html.escape(mk_sign + ' ' + mk_txt)}</td><td>KP (Sidereal) Moon</td></tr>
+                <tr><td>🏠 Lagna (Ascendant)</td><td>{html.escape(asc_sign + ' ' + asc_txt)}</td><td>KP Ascendant (House 1)</td></tr>
+              </tbody>
+            </table>
+            <div class="summary-note">
+              Ayanamsa: {ayanamsa:.2f}° · Timezone: {html.escape(chart_result['location'].get('tz_name','UTC'))} ·
+              Lat: {chart_result['location']['lat']:.3f}, Lng: {chart_result['location']['lng']:.3f}
+            </div>
+            """
+            st.markdown(summary_html, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error building summary: {e}")
+
+    st.markdown("---")
+
+    # Planetary positions table
+    try:
+        csl_all = chart_result.get('cuspal_sublords', {}) or st.session_state.get('cuspal_sublords', {})
+
+        rows = []
+
+        asc_house = chart_result['houses']['1st (Lagna)']
+        hnum = 1
+        rows.append({
+            "House": hnum,
+            "Entity": "Asc",
+            "Sign": asc_house.get("sign",""),
+            "Degree": asc_house.get("degree",""),
+            "Position": "",
+            "Lord": SIGN_RULERS.get(asc_house.get("sign",""), ""),
+            "Nakshatra": asc_house.get("nakshatra",""),
+            "Pad": asc_house.get("pada",""),
+            "Nakshatra Lord": asc_house.get("nakshatra_lord",""),
+            "S. Lord": asc_house.get("sublord",""),
+            "Cusp Sublord": csl_all.get("1","")
+        })
+
+        house_map = {i: [] for i in range(1, 13)}
+        for pname, pdata in chart_result['planets'].items():
+            fd = pdata.get('full_degree')
+            if fd is None:
+                continue
+            hnum = pdata.get('house_whole') or pdata.get('house_cuspal') or get_house_number_whole_sign(float(fd), chart_result['asc_degree'])
+            house_map[int(hnum)].append((pname, pdata))
+        for h in range(1, 13):
+            for pname, pdata in house_map[h]:
+                deg_text = pdata.get('degree', '')
+                sign_lord = pdata.get('sign_lord', SIGN_RULERS.get(pdata.get('sign',''), ''))
+                rows.append({
+                    "House": h,
+                    "Entity": pname + (" (R)" if pname in ("Rahu","Ketu") else ""),
+                    "Sign": pdata.get("sign",""),
+                    "Degree": deg_text,
+                    "Position": pdata.get("position",""),
+                    "Lord": sign_lord,
+                    "Nakshatra": pdata.get("nakshatra",""),
+                    "Pad": pdata.get("pada",""),
+                    "Nakshatra Lord": pdata.get("nakshatra_lord",""),
+                    "S. Lord": pdata.get("sublord",""),
+                    "Cusp Sublord": csl_all.get(str(h), "")
+                })
+
+        header_html = """
+        <thead>
+          <tr>
+            <th>House</th><th>Entity</th><th>Sign</th><th>Degree</th><th>Position</th><th>Lord</th>
+            <th>Nakshatra</th><th>Pad</th><th>Nakshatra Lord</th><th>S. Lord</th><th>Cusp Sublord</th>
+          </tr>
+        </thead>
+        """
+        body_html = "<tbody>" + "".join(
+            f"<tr>"
+            f"<td>{html.escape(str(r.get('House','')))}</td>"
+            f"<td>{html.escape(str(r.get('Entity','')))}</td>"
+            f"<td>{html.escape(str(r.get('Sign','')))}</td>"
+            f"<td>{html.escape(str(r.get('Degree','')))}</td>"
+            f"<td>{html.escape(str(r.get('Position','')))}</td>"
+            f"<td>{html.escape(str(r.get('Lord','')))}</td>"
+            f"<td>{html.escape(str(r.get('Nakshatra','')))}</td>"
+            f"<td>{html.escape(str(r.get('Pad','')))}</td>"
+            f"<td>{html.escape(str(r.get('Nakshatra Lord','')))}</td>"
+            f"<td>{html.escape(str(r.get('S. Lord','')))}</td>"
+            f"<td>{html.escape(str(r.get('Cusp Sublord','')))}</td>"
+            f"</tr>"
+            for r in rows
+        ) + "</tbody>"
+
+        table_html = f"<table class='kp-table'>{header_html}{body_html}</table>"
+
+        st.markdown("### 🪐 Planetary Positions (Ordered from Lagna)")
+        st.markdown(table_html, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Error building planetary table: {e}")
+
+    st.markdown("---")
+
+    # Chart image
+    st.markdown("### 🗺️ Odia-Style Lagna Chart")
+    try:
+        png = render_chart_png_bytes_pil(chart_result['planets'], chart_result['house_cusps_degrees'], size=900, show_pada=True)
+        st.image(png, width='stretch')
+    except Exception as e:
+        st.error(f"Chart render error: {e}")
+
+# ── Expander 2: Dasha, Numerology, Antardasha Timeline ─────────
+with st.expander("⏰ Dasha & Numerology — Vimshottari Timeline", expanded=False):
+    # Current Dasha
+    st.markdown("### ⏰ Vimshottari Dasha")
+    d = chart_result['dashas']
+    if d.get('current'):
+        st.markdown(f"**Current:** {d['current']['lord']} — {d['current']['start']} to {d['current']['end']} ({d['current']['years']} years)")
+    if d.get('upcoming'):
+        st.markdown(f"**Upcoming:** {d['upcoming']['lord']} — starts {d['upcoming']['start']} ({d['upcoming']['years']} years)")
+
+    # Numerology
+    if name_val or numerology.get("life_path"):
+        st.markdown("### 🔢 Numerology")
+        if name_val and numerology.get("name_number"):
+            st.write(f"**Name Number ({name_val}):** {numerology['name_number']}")
+        st.write(f"**Life Path Number:** {numerology['life_path']}")
+
+    st.markdown("---")
+
+    # Antardasha Timeline
+    st.markdown("### 📅 Antardasha Timeline (Complete Life)")
+    try:
+        raw_d = (chart_result.get('dashas') or {}).get('raw') or []
+        if raw_d:
+            now_ui = datetime.now()
+            header_cols = ["Mahadasha", "Maha Period", "Antardasha", "Antar Period", "Duration (yrs)"]
+            hdr = "<tr>" + "".join(f"<th>{c}</th>" for c in header_cols) + "</tr>"
+            body = ""
+            prev_maha = None
+            for maha in raw_d:
+                antars_ui = compute_antardashas(maha)
+                for antar in antars_ui:
+                    is_cur = antar['start'] <= now_ui <= antar['end']
+                    maha_cell   = html.escape(maha['lord']) if maha['lord'] != prev_maha else ""
+                    maha_period = (html.escape(f"{maha['start'].strftime('%b %Y')} – {maha['end'].strftime('%b %Y')}")
+                                   if maha['lord'] != prev_maha else "")
+                    row_style   = " style='background:rgba(212,160,60,0.18);font-weight:600'" if is_cur else ""
+                    body += (
+                        f"<tr{row_style}>"
+                        f"<td style='font-weight:600'>{maha_cell}</td>"
+                        f"<td>{maha_period}</td>"
+                        f"<td>{'◀ ' if is_cur else ''}{html.escape(antar['lord'])}</td>"
+                        f"<td>{html.escape(antar['start'].strftime('%b %Y'))} – {html.escape(antar['end'].strftime('%b %Y'))}</td>"
+                        f"<td style='text-align:center'>{antar['years']:.2f}</td>"
+                        f"</tr>"
+                    )
+                    prev_maha = maha['lord']
+            st.markdown(f"<table class='kp-table'><thead>{hdr}</thead><tbody>{body}</tbody></table>",
+                        unsafe_allow_html=True)
+            st.caption("◀ indicates the currently active Antardasha period")
+    except Exception as _e:
+        st.error(f"Antardasha timeline error: {_e}")
+
+# ── Expander 3: KP Significators ───────────────────────────────
+with st.expander("🔗 KP Significators — House Significations per Planet", expanded=False):
+    st.caption("Houses each planet signifies (via occupation, star-lordship, and sign ownership)")
+    try:
+        sigs = compute_kp_significators(chart_result)
+        sig_header = "<tr><th>Planet</th><th>Occupied House</th><th>Owned Houses</th><th>Signified Houses</th></tr>"
+        sig_body   = ""
+        for pname in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+            s = sigs.get(pname)
+            if not s:
+                continue
+            sig_body += (
+                f"<tr>"
+                f"<td style='font-weight:600'>{html.escape(pname)}</td>"
+                f"<td style='text-align:center'>{html.escape(str(s['occupied_house']) if s['occupied_house'] else '–')}</td>"
+                f"<td style='text-align:center'>{html.escape(', '.join(str(h) for h in s['owned_houses']) or '–')}</td>"
+                f"<td style='text-align:center'>{html.escape(', '.join(str(h) for h in s['signified_houses']) or '–')}</td>"
+                f"</tr>"
+            )
+        st.markdown(f"<table class='kp-table'><thead>{sig_header}</thead><tbody>{sig_body}</tbody></table>",
+                    unsafe_allow_html=True)
+    except Exception as _e:
+        st.error(f"KP Significators error: {_e}")
+
+# ── Expander 4: Current Transits ───────────────────────────────
+with st.expander(f"🌍 Current Planetary Transits — {datetime.now().strftime('%d %b %Y')}", expanded=False):
+    st.caption("Sidereal positions (Lahiri) as of today — same ayanamsa as your natal chart")
+    try:
+        transits_data = compute_current_transits(chart_result)
+        tr_header = (
+            "<tr><th>Planet</th><th>Transit Sign</th><th>Transit Deg</th>"
+            "<th>Transit Nak.</th><th>Transit Sublord</th>"
+            "<th>Natal Sign</th><th>Natal Nak.</th></tr>"
+        )
+        tr_body = ""
+        for pname in ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']:
+            t = transits_data.get(pname)
+            if not t:
+                continue
+            sign_changed = t.get('sign') != t.get('natal_sign')
+            td_style = " style='color:var(--accent);font-weight:600'" if sign_changed else ""
+            tr_body += (
+                f"<tr>"
+                f"<td style='font-weight:600'>{html.escape(pname)}</td>"
+                f"<td{td_style}>{html.escape(t.get('sign','–'))}</td>"
+                f"<td>{html.escape(t.get('degree','–'))}</td>"
+                f"<td>{html.escape(t.get('nakshatra','–'))}</td>"
+                f"<td>{html.escape(t.get('sublord','–'))}</td>"
+                f"<td>{html.escape(t.get('natal_sign','–'))}</td>"
+                f"<td>{html.escape(t.get('natal_nakshatra','–'))}</td>"
+                f"</tr>"
+            )
+        st.markdown(f"<table class='kp-table'><thead>{tr_header}</thead><tbody>{tr_body}</tbody></table>",
+                    unsafe_allow_html=True)
+        st.caption("Highlighted transit sign = planet has moved sign since birth")
+    except Exception as _e:
+        st.error(f"Transits error: {_e}")
+
+# ── Expander 5: Daily Muhurtha Kalas ───────────────────────────
+with st.expander("⏳ Daily Muhurtha Kalas — Rahu Kalam, Yama Kantam, Gulika Kalam", expanded=False):
+    st.caption("Rahu Kalam · Yama Kantam · Gulika Kalam — calculated from actual sunrise/sunset at birth location")
+    try:
+        _loc       = chart_result.get('location', {}) or {}
+        _tz_name   = _loc.get('tz_name', 'Asia/Kolkata')
+        _lat_mk    = _loc.get('lat', 20.0)
+        _lng_mk    = _loc.get('lng', 78.0)
+        mk_date    = st.date_input("Select date for Kalas", value=datetime.now().date(), key="mk_date_picker")
+        mk_result  = compute_muhurtha_kalas(mk_date, _lat_mk, _lng_mk, _tz_name)
+        if mk_result:
+            def _fmt_window(pair):
+                s, e = pair
+                return f"{s.strftime('%I:%M %p')} – {e.strftime('%I:%M %p')}"
+            mk_html = f"""
+            <table class='kp-table'>
+              <thead><tr><th>Kala</th><th>Time ({_tz_name})</th><th>Guidance</th></tr></thead>
+              <tbody>
+                <tr><td>🌅 Sunrise</td><td>{mk_result['sunrise'].strftime('%I:%M %p')}</td><td>Start of daytime</td></tr>
+                <tr style='background:rgba(212,80,60,0.12)'><td>🔴 Rahu Kalam</td><td>{_fmt_window(mk_result['rahu_kalam'])}</td><td>Avoid new beginnings, important decisions or travel</td></tr>
+                <tr style='background:rgba(212,80,60,0.08)'><td>🟠 Yama Kantam</td><td>{_fmt_window(mk_result['yama_kantam'])}</td><td>Inauspicious for travel and new ventures</td></tr>
+                <tr style='background:rgba(212,80,60,0.08)'><td>🟡 Gulika Kalam</td><td>{_fmt_window(mk_result['gulika_kalam'])}</td><td>Avoid auspicious ceremonies</td></tr>
+                <tr><td>🌇 Sunset</td><td>{mk_result['sunset'].strftime('%I:%M %p')}</td><td>End of daytime</td></tr>
+              </tbody>
+            </table>
+            """
+            st.markdown(mk_html, unsafe_allow_html=True)
+        else:
+            st.warning("Could not compute Muhurtha Kalas for selected date. Check location coordinates.")
+    except Exception as _e:
+        st.error(f"Muhurtha Kalas error: {_e}")
 # ---------- AI Agent Prompts ----------
 
 # ----------------- AI Agents -----------------
@@ -2827,7 +3563,7 @@ if "relationship_result" in st.session_state:
 
 # ----------------- Chat -----------------
 st.markdown("---")
-st.markdown("### 💬 Ask Yogi Baba")
+st.markdown("### 💬 Ask AstroGen")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
@@ -2839,7 +3575,7 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
 
 # Chat input handling
-if prompt := st.chat_input("Ask Yogi Baba about your chart..."):
+if prompt := st.chat_input("Ask AstroGen about your chart..."):
     # Save the user message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -2928,7 +3664,7 @@ Upcoming Dasha: {upcoming_dasha}
                             {
                                 "role": "system",
                                 "content": (
-                                    "You are Yogi Baba, a kind KP astrologer who gives wise and gentle advice. "
+                                    "You are AstroGen, a kind KP astrologer who gives wise and gentle advice. "
                                     "If remembered organisation or match context is provided, use it for org/team questions. "
                                     "For match winner questions, give only an astrological edge/lean with confidence and no guarantees, betting advice, or odds."
                                 ),
