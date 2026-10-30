@@ -1,0 +1,12 @@
+---
+description: Never alter existing AstroGen app code unless explicitly requested; prefer additive changes only.
+alwaysApply: true
+---
+
+# Preserve Existing Code
+
+- Do **not** edit, rewrite, refactor, or “clean up” existing application files (especially `app.py`, `agents/*.py`, `requirements.txt`) unless the user names that file and asks for a change.
+- New work must be **additive**: new directories, modules, skills, rules, docs, tests, or parallel report pipelines.
+- If a feature needs chart data, **import/call** existing functions; do not duplicate or alter KP math in place.
+- If integration into `app.py` is eventually required, ask first and keep the diff minimal and isolated.
+- Do not delete or move tracked app assets as part of enhancement work.

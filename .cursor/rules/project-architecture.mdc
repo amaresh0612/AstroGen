@@ -1,0 +1,48 @@
+---
+description: AstroGen architecture map — where code lives and how features should be added.
+alwaysApply: true
+---
+
+# Architecture
+
+## Repo layout
+
+Application and git repo share the same root:
+
+```
+./
+  app.py                 # monolith: calc + UI + PDF + AI + org
+  agents/                # thin LLM wrappers
+  prompts/               # versioned prompt packs
+  requirements.txt
+  .streamlit/
+  .venv/                 # local venv (gitignored)
+  .cursor/               # agent rules, skills, commands
+  docs/                  # steering & roadmap
+```
+
+## Suggested additive layout (new code only)
+
+```
+./
+  reports/               # professional report builders (new)
+  analysis/              # higher-level KP narrative helpers (new)
+  schemas/               # typed chart/report payloads (new)
+  tests/                 # golden chart fixtures (new)
+```
+
+## Key entry points in `app.py` (read-only reference)
+
+| Function | Purpose |
+|----------|---------|
+| `calculate_comprehensive_chart` | Full KP chart dict |
+| `get_sublord_kp_standard` | KP sublord from longitude |
+| `compute_kp_significators` | House significations |
+| `calculate_vimshottari_dasha` / `compute_antardashas` | Timing |
+| `generate_pdf_report` / `generate_org_pdf_report` | PDF |
+| `get_ai_reading` / `AGENTS` | Interactive AI readings |
+| `_ai_pdf_summary` | Short PDF AI block |
+
+## Stack
+
+Streamlit UI · Swiss Ephemeris · geopy/timezonefinder · ReportLab · Pillow · OpenAI

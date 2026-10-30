@@ -1,0 +1,19 @@
+---
+description: Rules for KP AI agent prompts and OpenAI reading pipelines.
+globs: agents/**/*.py,prompts/**/*
+alwaysApply: false
+---
+
+# Agent Prompt Conventions
+
+## Current agents
+
+Interactive readings use `AGENTS` + `get_ai_reading` in `app.py` for `overall`, `career`, `relationship`. Thin wrappers also exist under `agents/`.
+
+## When enhancing prompts (additive)
+
+- Put improved prompt packs in `prompts/` (versioned files), not by silently rewriting `AGENTS` unless the user asks.
+- Always inject **computed chart summary** (planets, houses/CSL, current/upcoming dasha, significators) into the user message.
+- System prompts must: declare KP expertise, scope the topic, forbid medical/financial/legal guarantees, require bullets and chart citations.
+- Prefer structured output templates (fixed headings + min/max bullets) for professional consistency.
+- Models: default align with app (`gpt-4o-mini`) unless user requests otherwise; keep `temperature` moderate (0.5–0.7) for reports.

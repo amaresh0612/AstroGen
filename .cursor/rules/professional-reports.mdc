@@ -1,0 +1,37 @@
+---
+description: Standards for professional-level personal and organisation astrology reports (PDF and AI narrative).
+globs: reports/**/*.py,prompts/**/*,**/generate_*report*.py
+alwaysApply: false
+---
+
+# Professional Report Standards
+
+## Goal
+
+Produce client-ready KP reports that feel like a senior astrologer’s written deliverable — not a generic LLM dump.
+
+## Required sections (personal)
+
+1. Cover / birth metadata (name, DOB, TOB, place, ayanamsa, coords)
+2. Chart synopsis (Lagna, Moon, key CSLs)
+3. Persona & life themes
+4. Career & vocation (with timing)
+5. Relationships & marriage themes (with timing)
+6. Finance & gains (non-advisory)
+7. Current & upcoming dasha windows
+8. Practical guidance (3–7 actions)
+9. Optional: significator table appendix, chart image
+
+## Quality bar
+
+- Every major claim cites chart evidence (planet/house/sublord/dasha).
+- Timing uses MD/AD (and pratyantar when relevant), not vague “soon”.
+- Consistent voice: calm, specific, non-fatalistic.
+- Fixed section order and headings across clients.
+- PDF: readable typography, tables that don’t overflow, optional AI block never blocks PDF on API failure (match existing `_ai_pdf_summary` behavior).
+
+## Organisation reports
+
+- Foundation chart first; match/overlay second when provided.
+- Separate “structural significations” from “forecast windows”.
+- Keep org tone institutional, not personal-romance language.

@@ -1,0 +1,14 @@
+---
+description: Conventions when adding Streamlit UI beside the existing AstroGen app.
+globs: app.py,**/*.py
+alwaysApply: false
+---
+
+# Streamlit UI Conventions
+
+- Match existing visual language: cream/gold Cinzel+Inter theme tokens already in `app.py` CSS.
+- Prefer expanders/sections for dense chart tables; keep primary CTA (generate chart / download PDF) obvious.
+- Store heavy results in `st.session_state` (`chart_result`, `birth_details`, reading keys) consistently.
+- New pages or multi-file Streamlit apps are fine as **additions**; do not reshape the existing single-file flow unless asked.
+- Spinner copy and section titles may stay in the current astrological tone.
+- Never log or display API keys; use `st.secrets` / env only.

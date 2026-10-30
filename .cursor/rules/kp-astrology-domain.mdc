@@ -1,0 +1,36 @@
+---
+description: KP Vedic astrology domain rules for AstroGen chart interpretation and report text.
+alwaysApply: true
+---
+
+# KP Domain Rules
+
+## System of record
+
+- Use **Krishnamurti Paddhati (KP)** with **Lahiri** ayanamsa as implemented in `app.py`.
+- Ground every claim in computed data: planets, cusps, sublords, significators, dashas, transits.
+- Do not invent degrees, lords, or dates. If data is missing, say so and stop.
+
+## Interpretation priorities
+
+1. **Cuspal sublord (CSL)** of the relevant house for the question.
+2. **Star lord / sublord** of the significator planets.
+3. **House occupation** and **sign ownership** (significators).
+4. **Vimshottari** maha → antar → pratyantar for timing windows.
+5. Transits as secondary confirmation, not the primary verdict.
+
+## House focus by topic
+
+| Topic | Primary houses |
+|-------|----------------|
+| Self / persona | 1, Moon, Lagna CSL |
+| Career / status | 10, 6, 2, 11 |
+| Relationship / marriage | 7, 5, 8, Venus, Moon |
+| Finance | 2, 11, 8 |
+| Health themes (soft only) | 1, 6, 8 — no diagnoses |
+
+## Safety & tone
+
+- No medical diagnoses, guaranteed financial outcomes, or legal advice.
+- Prefer clear, compassionate, actionable language with timing ranges.
+- Professional reports: structured sections, bullets, specific chart citations (e.g. “10th CSL Mercury; current MD Saturn / AD Venus”).

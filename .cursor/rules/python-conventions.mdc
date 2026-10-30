@@ -1,0 +1,14 @@
+---
+description: Python style for new AstroGen modules (additive code only).
+globs: **/*.py
+alwaysApply: false
+---
+
+# Python Conventions (New Code)
+
+- Target Python 3.11+ style already used in the app (`str | None`, f-strings).
+- Prefer pure functions for analysis/report building; keep Streamlit I/O at the edge.
+- Type chart payloads with TypedDict / dataclasses in new `schemas/` when adding pipelines.
+- Fail soft for optional AI: return `None` / skip section; never break PDF or chart render.
+- Do not add heavy new dependencies without updating a **new** requirements overlay or documenting the pin; avoid changing existing `requirements.txt` unless asked.
+- Tests: golden fixtures with known DOB/place expected sublords/dashas when touching interpretation helpers.
