@@ -12,13 +12,7 @@ override KP promise/denial. Use it as a qualitative suitability indicator.
 """
 from __future__ import annotations
 
-NAKSHATRAS = [
-    "Ashwini","Bharani","Krittika","Rohini","Mrigashira","Ardra",
-    "Punarvasu","Pushya","Ashlesha","Magha","Purva Phalguni","Uttara Phalguni",
-    "Hasta","Chitra","Swati","Vishakha","Anuradha","Jyeshtha",
-    "Mula","Purva Ashadha","Uttara Ashadha","Shravana","Dhanishta","Shatabhisha",
-    "Purva Bhadrapada","Uttara Bhadrapada","Revati",
-]
+from analysis.kp_constants import NAKSHATRA_NAMES as NAKSHATRAS, SIGNS
 
 TARA_CATEGORIES = [
     (1, "Janma",     "Birth — neutral, requires attention"),
@@ -30,11 +24,6 @@ TARA_CATEGORIES = [
     (7, "Naidhana",  "Death/Loss — unfavorable"),
     (8, "Mitra",     "Friend — favorable"),
     (9, "Parama Mitra", "Best Friend — highly favorable"),
-]
-
-SIGNS = [
-    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces",
 ]
 
 

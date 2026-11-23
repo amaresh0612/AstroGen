@@ -55,11 +55,27 @@ class LockedDasha(TypedDict):
     end: str
 
 
-class DashaSection(TypedDict):
-    locked_md: LockedDasha
+class LockedPeriodRow(TypedDict):
+    """One Pratyantar with its parents. Timestamps are local wall time "YYYY-MM-DDTHH:MM:SS"."""
+    md: str
+    md_start: str
+    md_end: str
+    ad: str
+    ad_start: str
+    ad_end: str
+    pd: str
+    pd_start: str
+    pd_end: str
+
+
+class DashaSection(TypedDict, total=False):
+    locked_at: str                       # lock moment (local wall time ISO)
+    method: str
+    locked_md: LockedDasha               # active at locked_at
     locked_ad: LockedDasha
     locked_pd: LockedDasha
-    full_timeline: list[dict]   # raw maha dicts for dasha_fine to extend
+    locked_periods: list[LockedPeriodRow]  # lock−1y … lock+6y; engines read MD/AD/PD only from here
+    full_timeline: list[dict]            # mahadashas (lord/start/end/years)
 
 
 class NumerologyData(TypedDict):

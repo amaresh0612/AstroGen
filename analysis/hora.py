@@ -140,7 +140,11 @@ def get_hora_at(
 ) -> Optional[dict]:
     """
     Find which hora is active at query_time_local (timezone-aware datetime).
-    Returns the matching hora slot or None.
+
+    hora_data must be the sequence for the astrological day containing the
+    query (i.e. the previous calendar day's sequence before sunrise). Slots are
+    tried anchored on the query date and on the day before, so a night hora
+    that crosses midnight still matches a query just after midnight.
     """
     for slot in hora_data.get("all_horas", []):
         start_s = slot.get("start")
@@ -148,9 +152,6 @@ def get_hora_at(
         if not start_s or not end_s:
             continue
         try:
-            # Parse HH:MM against the query date
-            q_date = query_time_local.date()
-            tz = query_time_local.tzinfo
             s_dt = query_time_local.replace(
                 hour=int(start_s[:2]), minute=int(start_s[3:]), second=0, microsecond=0
             )
@@ -159,8 +160,9 @@ def get_hora_at(
             )
             if e_dt <= s_dt:  # crosses midnight
                 e_dt += timedelta(days=1)
-            if s_dt <= query_time_local < e_dt:
-                return slot
+            for shift in (timedelta(0), timedelta(days=-1)):
+                if s_dt + shift <= query_time_local < e_dt + shift:
+                    return slot
         except Exception:
             continue
     return None

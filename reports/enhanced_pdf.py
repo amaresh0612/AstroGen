@@ -10,7 +10,7 @@ Output PDF contains:
     Page 2   : KP Significator strength table (Level 1–4)
     Page 3   : Event promise/denial analysis
     Page 4   : Long-term transit windows (5 years)
-    Pages 5+ : 60-day almanac (landscape, ~20 days per page)
+    Pages 5+ : 90-day almanac (landscape, ~20 days per page)
 
 Usage
 -----
@@ -19,8 +19,12 @@ Usage
     from datetime import date
 
     natal = load_natal_ref()
-    ctx   = build_prediction_context(natal, date.today(), query_mode="LONG_TERM")
-    pdf_bytes = build_enhanced_pdf(natal, ctx, almanac_days=60)
+    ctx   = build_prediction_context(
+        natal, date.today(), query_mode="LONG_TERM",
+        query_location="Hyderabad, India", query_lat=17.385, query_lng=78.4867,
+        query_tz="Asia/Kolkata",
+    )
+    pdf_bytes = build_enhanced_pdf(natal, ctx, almanac_days=90)
     # pdf_bytes is an io.BytesIO — pass to st.download_button or write to file.
 """
 from __future__ import annotations
@@ -39,25 +43,65 @@ from reportlab.platypus import (
     PageBreak, KeepTogether,
 )
 
-from analysis.context import load_natal_ref, build_prediction_context
+from analysis.context import PredictionLocationRequired, build_prediction_context, load_natal_ref
 from analysis.almanac_builder import build_almanac
-from analysis.significator_strength import compute_significator_strength_from_natal
+from analysis.significator_strength import natal_significators
 from analysis.promise_denial import compute_all_topics
 from analysis.long_term_transits import compute_long_term_transits
 from reports.pdf.almanac_section import build_almanac_section
 from reports.pdf.kp_packet_section import build_kp_packet_section
-from schemas.event_houses import EVENT_HOUSES
+from schemas.event_houses import EVENT_HOUSES, TOPIC_LABELS
 
 ACCENT    = colors.HexColor("#8B4513")
 GOLD      = colors.HexColor("#C9963A")
 HEADER_BG = colors.HexColor("#FFF8DC")
 
 
-def _cover_story(natal_ref: dict, ctx: dict, styles,
-                 query_city: Optional[str] = None,
-                 query_lat: Optional[float] = None,
-                 query_lng: Optional[float] = None,
-                 query_tz: Optional[str] = None) -> list:
+def _fine_windows_story(ctx: dict, styles) -> list:
+    """Sukshma windows with signified houses — evidence table, no interpretation."""
+    windows = (ctx.get("fine_dasha_windows") or {}).get("sukshma") or []
+    if not windows:
+        return []
+    title_sty = ParagraphStyle("fw_title", parent=styles["Heading2"], textColor=ACCENT, fontSize=11)
+    note_sty = ParagraphStyle("fw_note", parent=styles["Normal"], fontSize=7, leading=9,
+                              textColor=colors.HexColor("#444444"))
+    head = ParagraphStyle("fw_head", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7)
+    cell = ParagraphStyle("fw_cell", parent=styles["Normal"], fontSize=7, leading=9)
+
+    rows = [[Paragraph(h, head) for h in
+             ("From", "To", "MD / AD / PD", "Sukshma", "Signified houses", "Topic houses touched")]]
+    for w in windows:
+        touched = "; ".join(
+            f"{TOPIC_LABELS.get(t, t)} (H{','.join(map(str, hs))})" for t, hs in w["topics"].items()
+        ) or "—"
+        rows.append([Paragraph(str(c), cell) for c in (
+            w["start"].replace("T", " "), w["end"].replace("T", " "),
+            f"{w['md']} / {w['ad']} / {w['pd']}", w["lord"],
+            ", ".join(map(str, w["signified_houses"])) or "—", touched,
+        )])
+    table = Table(rows, colWidths=[0.95*inch, 0.95*inch, 1.15*inch, 0.6*inch, 1.0*inch, 2.6*inch],
+                  repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+        ("GRID",       (0, 0), (-1, -1), 0.3, colors.grey),
+        ("VALIGN",     (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAF5")]),
+    ]))
+    return [
+        PageBreak(),
+        Paragraph("Sukshma Windows (beneath locked PD)", title_sty),
+        Paragraph(
+            "Each Sukshma lord with the natal houses it signifies (classical KP levels, node agency). "
+            "A topic is listed when the lord covers at least half of its primary houses. "
+            "Evidence only — not part of the activation score and not a prediction.",
+            note_sty,
+        ),
+        Spacer(1, 0.08 * inch),
+        table,
+    ]
+
+
+def _cover_story(natal_ref: dict, ctx: dict, styles) -> list:
     """Build cover page flowables."""
     title_sty = ParagraphStyle("et", parent=styles["Heading1"],
                                 textColor=ACCENT, alignment=TA_CENTER, fontSize=16)
@@ -106,19 +150,16 @@ def _cover_story(natal_ref: dict, ctx: dict, styles,
     ]))
     story.extend([Paragraph("Birth Details", h3_sty), bt, Spacer(1, 0.12 * inch)])
 
-    # Prediction location (explicitly separate from natal/birth location)
-    pred_city = query_city or birth.get("place", "")
-    pred_lat  = query_lat  if query_lat  is not None else birth.get("lat", 0)
-    pred_lng  = query_lng  if query_lng  is not None else birth.get("lng", 0)
-    pred_tz   = query_tz   if query_tz   is not None else birth.get("tz", "Asia/Kolkata")
-    same_as_natal = (query_city is None or
-                     query_city.strip().lower() == birth.get("place", "").strip().lower())
+    # Prediction location (explicitly separate from natal/birth location) — from the context
+    pred_lat, pred_lng = float(ctx["query_lat"]), float(ctx["query_lng"])
+    same_as_natal = (abs(pred_lat - float(birth.get("lat", 999))) < 0.05
+                     and abs(pred_lng - float(birth.get("lng", 999))) < 0.05)
 
     pred_rows = [
-        ["Prediction City",  pred_city],
+        ["Prediction City",  ctx.get("query_location", "")],
         ["Prediction Coords", f"{pred_lat:.4f}°, {pred_lng:.4f}°"],
-        ["Prediction TZ",    pred_tz],
-        ["Same as natal?",   "YES — birth place used" if same_as_natal
+        ["Prediction TZ",    ctx.get("query_tz", "")],
+        ["Same as natal?",   "YES — prediction location entered equals birth place" if same_as_natal
                               else "NO — separate current location used ✓"],
     ]
     pt = Table([[Paragraph(r[0], bold8), Paragraph(r[1], tiny)] for r in pred_rows],
@@ -139,6 +180,7 @@ def _cover_story(natal_ref: dict, ctx: dict, styles,
         ["Antardasha",  f"{dasha.get('ad_lord','')} ({dasha.get('ad_start','')} → {dasha.get('ad_end','')})"],
         ["Pratyantar",  f"{dasha.get('pd_lord','')} ({dasha.get('pd_start','')} → {dasha.get('pd_end','')})"],
         ["Sukshma",     f"{dasha.get('sukshma_lord','–')} ({dasha.get('sukshma_start','–')} → {dasha.get('sukshma_end','–')})"],
+        ["MD/AD/PD source", dasha.get("source", "")],
     ]
     dt = Table([[Paragraph(r[0], bold8), Paragraph(r[1], tiny)] for r in dasha_rows],
                colWidths=[1.5 * inch, 4.5 * inch])
@@ -151,27 +193,28 @@ def _cover_story(natal_ref: dict, ctx: dict, styles,
 
     # Key transits snapshot
     transits = ctx.get("transits", {})
-    if transits:
-        tr_rows = [["Planet", "Transit Sign", "Nak", "Star", "Sub", "House"]]
-        for pname in ["Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu","Ketu"]:
-            t = transits.get(pname, {})
-            if not t:
-                continue
-            tr_rows.append([pname, t.get("sign",""), t.get("nakshatra",""),
-                             t.get("star_lord",""), t.get("sub_lord",""),
-                             str(t.get("transit_house",""))])
-        tr_table = Table(
-            [[Paragraph(str(c), tiny if i > 0 else ParagraphStyle("th", parent=styles["Normal"],
-                        fontName="Helvetica-Bold", fontSize=7)) for c in r]
-             for i, r in enumerate(tr_rows)],
-            colWidths=[0.75*inch, 0.85*inch, 1.0*inch, 0.65*inch, 0.65*inch, 0.5*inch],
-        )
-        tr_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
-            ("GRID",       (0, 0), (-1, -1), 0.3, colors.grey),
-            ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAF5")]),
-        ]))
+    tr_rows = [["Planet", "Transit Sign", "Nak", "Star", "Sub", "House (cusp)"]]
+    for pname in ["Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu","Ketu"]:
+        t = transits.get(pname, {})
+        if not t:
+            continue
+        tr_rows.append([pname, t.get("sign",""), t.get("nakshatra",""),
+                         t.get("star_lord",""), t.get("sub_lord",""),
+                         str(t.get("transit_house",""))])
+    if len(tr_rows) == 1:
+        tr_rows.append(["—", "unavailable", "—", "—", "—", "—"])
+    tr_table = Table(
+        [[Paragraph(str(c), tiny if i > 0 else ParagraphStyle("th", parent=styles["Normal"],
+                    fontName="Helvetica-Bold", fontSize=7)) for c in r]
+         for i, r in enumerate(tr_rows)],
+        colWidths=[0.75*inch, 0.85*inch, 1.0*inch, 0.65*inch, 0.65*inch, 0.5*inch],
+    )
+    tr_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), HEADER_BG),
+        ("GRID",       (0, 0), (-1, -1), 0.3, colors.grey),
+        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#FAFAF5")]),
+    ]))
     story.extend([Paragraph(f"Current Transits — {ctx.get('query_date','')}", h3_sty),
                   tr_table])
 
@@ -281,7 +324,7 @@ def _cover_story(natal_ref: dict, ctx: dict, styles,
 def build_enhanced_pdf(
     natal_ref: dict,
     prediction_context: dict,
-    almanac_days: int = 60,
+    almanac_days: int = 90,
     topics: Optional[list[str]] = None,
     include_almanac: bool = True,
     include_kp_packet: bool = True,
@@ -298,18 +341,29 @@ def build_enhanced_pdf(
     ----------
     natal_ref          : Loaded natal_ref.json dict.
     prediction_context : PredictionContext from analysis/context.py.
-    almanac_days       : Number of almanac days (default 60).
+    almanac_days       : Number of almanac days (default 90).
     topics             : Topics for promise/denial (defaults to main topics).
-    include_almanac    : Whether to append the 60-day almanac section.
+    include_almanac    : Whether to append the almanac section.
     include_kp_packet  : Whether to include significator/promise/denial tables.
     include_long_term  : Whether to include long-term transit windows.
-    query_lat/lng/tz   : Current location for dynamic calculations.
-                         If omitted, falls back to natal location (birth place).
+    query_lat/lng/tz   : Prediction location. Defaults to the one stored in
+                         prediction_context; must match it when given.
+                         Birth location is never used.
 
     Returns
     -------
     io.BytesIO PDF buffer — ready for st.download_button or file write.
     """
+    ctx = prediction_context
+    for key, given in (("query_lat", query_lat), ("query_lng", query_lng), ("query_tz", query_tz)):
+        stored = ctx.get(key)
+        if stored is None:
+            raise PredictionLocationRequired(f"prediction_context has no {key}")
+        if given is not None and (given != stored if key == "query_tz"
+                                  else abs(float(given) - float(stored)) > 1e-6):
+            raise ValueError(f"{key}={given!r} differs from prediction_context {stored!r}")
+    query_lat, query_lng, query_tz = ctx["query_lat"], ctx["query_lng"], ctx["query_tz"]
+
     buffer = io.BytesIO()
 
     # Use landscape for almanac pages; standard A4 for analysis pages
@@ -324,10 +378,7 @@ def build_enhanced_pdf(
     story: list = []
 
     # ── Cover page ────────────────────────────────────────────────
-    story.extend(_cover_story(natal_ref, prediction_context, styles,
-                               query_city=query_city,
-                               query_lat=query_lat, query_lng=query_lng,
-                               query_tz=query_tz))
+    story.extend(_cover_story(natal_ref, prediction_context, styles))
 
     # ── KP Analysis Packet ────────────────────────────────────────
     if include_kp_packet:
@@ -338,7 +389,7 @@ def build_enhanced_pdf(
         except (ValueError, TypeError):
             ref_date = _date.today()
 
-        strength_map = compute_significator_strength_from_natal(natal_ref)
+        significators, strength_map = natal_significators(natal_ref)
         # Always recompute activation from locked natal significators —
         # never reuse stale event_analyses (can carry old CSL ✓/✗ bugs).
         dasha = prediction_context.get("dasha", {})
@@ -351,7 +402,7 @@ def build_enhanced_pdf(
             dasha.get("ad_lord", ""),
             dasha.get("pd_lord", ""),
             topics=topics,
-            significators=natal_ref.get("significators", {}),
+            significators=significators,
         )
         lt_list = prediction_context.get("long_term_transits", [])
         if include_long_term and not lt_list:
@@ -362,14 +413,16 @@ def build_enhanced_pdf(
                 from_date=ref_date,
                 horizon_years=5,
                 event_house_map=EVENT_HOUSES,
+                natal_houses=natal_ref.get("houses", {}),
             )
         story.extend(build_kp_packet_section(
             strength_map,
             pd_list,
             lt_list if include_long_term else [],
         ))
+        story.extend(_fine_windows_story(prediction_context, styles))
 
-    # ── 60-day almanac ────────────────────────────────────────────
+    # ── Almanac (default 90 days) ─────────────────────────────────
     if include_almanac:
         from datetime import date as _date
         query_date_str = prediction_context.get("query_date", "")
@@ -398,15 +451,19 @@ def build_enhanced_pdf(
 # ---------------------------------------------------------------------------
 
 def build_today_report(
+    query_location: str,
+    query_lat: float,
+    query_lng: float,
+    query_tz: str,
     natal_ref_path: Optional[str] = None,
-    query_location: Optional[str] = None,
 ) -> io.BytesIO:
     """
-    Shortcut: load natal ref and build the enhanced report for today.
+    Shortcut: load natal ref and build the enhanced report for today at an
+    explicit prediction location.
 
     python -c "
     from reports.enhanced_pdf import build_today_report
-    buf = build_today_report()
+    buf = build_today_report('Hyderabad, India', 17.385, 78.4867, 'Asia/Kolkata')
     open('enhanced_report.pdf','wb').write(buf.read())
     "
     """
@@ -416,5 +473,8 @@ def build_today_report(
         date.today(),
         query_mode="LONG_TERM",
         query_location=query_location,
+        query_lat=query_lat,
+        query_lng=query_lng,
+        query_tz=query_tz,
     )
     return build_enhanced_pdf(natal, ctx)

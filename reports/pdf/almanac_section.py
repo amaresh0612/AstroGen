@@ -1,5 +1,5 @@
 """
-ReportLab section builder — 60-day almanac table.
+ReportLab section builder — almanac table (default 90 days).
 
 Produces one or more A4 landscape pages containing the almanac grid.
 Each page fits approximately 20 days.
@@ -34,7 +34,7 @@ def _cell(text: str, style, wrap: bool = False):
 
 def build_almanac_section(almanac_rows: list[dict]) -> list:
     """
-    Build a list of ReportLab flowables for the 60-day almanac.
+    Build a list of ReportLab flowables for the almanac.
 
     Parameters
     ----------
@@ -55,7 +55,9 @@ def build_almanac_section(almanac_rows: list[dict]) -> list:
     # Section heading
     title_style = ParagraphStyle("alt", parent=styles["Heading2"],
                                   textColor=ACCENT, fontSize=12)
-    story.append(Paragraph("60-Day Panchanga & Kalam Reference", title_style))
+    story.append(Paragraph(
+        f"{len(almanac_rows)}-Day Panchanga & Kalam Reference", title_style,
+    ))
     story.append(Paragraph(
         "Pre-calculated daily reference: Panchanga, Kalam, Hora, Tarabala, Dasha  "
         "· Kalam col: R=Rahu Kalam, Y=Yamaganda, G=Gulika (hh:mm-hh:mm)  "

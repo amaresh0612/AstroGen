@@ -3,6 +3,7 @@ import streamlit as st
 from openai import OpenAI
 import os, uuid, io
 import json
+from enhanced_report_ui import render_enhanced_report_section  # additive: enhanced KP report
 from datetime import datetime, timedelta
 import swisseph as swe
 from geopy.geocoders import Nominatim
@@ -1603,52 +1604,12 @@ def compute_muhurtha_kalas(date_val, lat, lng, tz_name="Asia/Kolkata"):
 
 def compute_kp_significators(chart_result):
     """
-    KP Significators: for each planet determine which houses it signifies.
-      Level 1 – directly occupies the house
-      Level 2 – is the star-lord (nakshatra lord) of a planet occupying a house
-      Level 3 – owns the house via sign lordship
+    KP Significators — classical levels on cuspal (Placidus) occupancy, with
+    Rahu/Ketu agency; delegated to analysis.significator_strength.
     Returns dict: planet_name → {occupied_house, owned_houses, signified_houses}
     """
-    planets    = chart_result.get('planets', {}) or {}
-    houses     = chart_result.get('houses',  {}) or {}
-    house_keys = ['1st (Lagna)', '2nd', '3rd', '4th', '5th', '6th',
-                  '7th', '8th', '9th', '10th', '11th', '12th']
-    # house_no (int) → occupant planet names
-    occupants = {i: [] for i in range(1, 13)}
-    for pname, pdata in planets.items():
-        h = pdata.get('house_whole') or pdata.get('house_cuspal')
-        try:
-            occupants[int(h)].append(pname)
-        except (TypeError, ValueError):
-            pass
-    # planet → list of house numbers it owns via sign lordship
-    planet_owns = {p: [] for p in
-                   ['Sun', 'Moon', 'Mars', 'Mercury', 'Jupiter', 'Venus', 'Saturn', 'Rahu', 'Ketu']}
-    for i, hkey in enumerate(house_keys, 1):
-        sign = (houses.get(hkey) or {}).get('sign', '')
-        sl   = SIGN_RULERS.get(sign, '')
-        if sl in planet_owns:
-            planet_owns[sl].append(i)
-    result = {}
-    for pname, pdata in planets.items():
-        h_occ = pdata.get('house_whole') or pdata.get('house_cuspal')
-        h_own = planet_owns.get(pname, [])
-        sigs  = set()
-        try:
-            sigs.add(int(h_occ))
-        except (TypeError, ValueError):
-            pass
-        sigs.update(h_own)
-        for hno, occs in occupants.items():
-            for occ in occs:
-                if (planets.get(occ) or {}).get('nakshatra_lord') == pname:
-                    sigs.add(hno)
-        result[pname] = {
-            'occupied_house':   h_occ,
-            'owned_houses':     sorted(h_own),
-            'signified_houses': sorted(sigs),
-        }
-    return result
+    from analysis.significator_strength import significators_from_app_chart
+    return significators_from_app_chart(chart_result)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3035,6 +2996,18 @@ st.download_button(
     file_name=f"KP_Chart_{dob}_{uuid.uuid4().hex[:6]}.pdf",
     mime="application/pdf"
 )
+# additive: enhanced KP report section (significators, promise/denial, almanac, long-term transits)
+try:
+    render_enhanced_report_section(
+        chart_result,
+        name=name_val,
+        dob=dob,
+        tob=tob,
+        place=place,
+        numerology=numerology,
+    )
+except Exception as _enh_err:
+    st.warning(f"Enhanced KP Report section unavailable: {_enh_err}")
 st.markdown("---")
 
 # Common CSS for both tables

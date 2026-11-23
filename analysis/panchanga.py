@@ -55,24 +55,7 @@ KARANAS = [
     "Shakuni","Chatushpada","Naga","Kimstughna",
 ]
 
-VARA_LORDS = ["Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn"]
-
-NAKSHATRAS = [
-    ("Ashwini","Ketu"), ("Bharani","Venus"), ("Krittika","Sun"),
-    ("Rohini","Moon"), ("Mrigashira","Mars"), ("Ardra","Rahu"),
-    ("Punarvasu","Jupiter"), ("Pushya","Saturn"), ("Ashlesha","Mercury"),
-    ("Magha","Ketu"), ("Purva Phalguni","Venus"), ("Uttara Phalguni","Sun"),
-    ("Hasta","Moon"), ("Chitra","Mars"), ("Swati","Rahu"),
-    ("Vishakha","Jupiter"), ("Anuradha","Saturn"), ("Jyeshtha","Mercury"),
-    ("Mula","Ketu"), ("Purva Ashadha","Venus"), ("Uttara Ashadha","Sun"),
-    ("Shravana","Moon"), ("Dhanishta","Mars"), ("Shatabhisha","Rahu"),
-    ("Purva Bhadrapada","Jupiter"), ("Uttara Bhadrapada","Saturn"), ("Revati","Mercury"),
-]
-
-SIGNS = [
-    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces",
-]
+from analysis.kp_constants import NAKSHATRAS, SIGNS, VARA_LORDS
 
 
 # ---------------------------------------------------------------------------

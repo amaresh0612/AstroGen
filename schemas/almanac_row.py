@@ -1,5 +1,5 @@
 """
-TypedDict for a single row in the 60-day almanac.
+TypedDict for a single row in the almanac.
 Data container only — no calculation logic.
 """
 from __future__ import annotations

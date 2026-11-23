@@ -24,56 +24,13 @@ from typing import Optional
 import swisseph as swe
 import pytz
 
-SIGNS = [
-    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces",
-]
-SIGN_LORDS = {
-    "Aries":"Mars","Taurus":"Venus","Gemini":"Mercury","Cancer":"Moon",
-    "Leo":"Sun","Virgo":"Mercury","Libra":"Venus","Scorpio":"Mars",
-    "Sagittarius":"Jupiter","Capricorn":"Saturn","Aquarius":"Saturn","Pisces":"Jupiter",
-}
-NAKSHATRAS = [
-    ("Ashwini","Ketu"),("Bharani","Venus"),("Krittika","Sun"),
-    ("Rohini","Moon"),("Mrigashira","Mars"),("Ardra","Rahu"),
-    ("Punarvasu","Jupiter"),("Pushya","Saturn"),("Ashlesha","Mercury"),
-    ("Magha","Ketu"),("Purva Phalguni","Venus"),("Uttara Phalguni","Sun"),
-    ("Hasta","Moon"),("Chitra","Mars"),("Swati","Rahu"),
-    ("Vishakha","Jupiter"),("Anuradha","Saturn"),("Jyeshtha","Mercury"),
-    ("Mula","Ketu"),("Purva Ashadha","Venus"),("Uttara Ashadha","Sun"),
-    ("Shravana","Moon"),("Dhanishta","Mars"),("Shatabhisha","Rahu"),
-    ("Purva Bhadrapada","Jupiter"),("Uttara Bhadrapada","Saturn"),("Revati","Mercury"),
-]
-VIMSHOTTARI_ORDER  = ["Ketu","Venus","Sun","Moon","Mars","Rahu","Jupiter","Saturn","Mercury"]
-VIMSHOTTARI_YEARS  = [7, 20, 6, 10, 7, 18, 16, 19, 17]
-VARA_LORDS = ["Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn"]
+from analysis.kp_constants import SIGN_LORDS, VARA_LORDS, astro_weekday, jd_to_utc_datetime, nak_star_sub, sign_of
 
-
-def _nak_and_sublord(lon: float) -> tuple[str, str, str]:
-    """Return (nakshatra_name, star_lord, sub_lord) for a longitude."""
-    nak_width = 360.0 / 27.0
-    nak_idx   = int(lon / nak_width) % 27
-    nak_name, star_lord = NAKSHATRAS[nak_idx]
-
-    # Sublord via KP arc-minute method
-    nak_minutes   = nak_width * 60.0
-    offset_min    = (lon % nak_width) * 60.0
-    total_years   = sum(VIMSHOTTARI_YEARS)
-    start_idx     = VIMSHOTTARI_ORDER.index(star_lord)
-    cumulative    = 0.0
-    sub_lord      = star_lord
-    for i in range(9):
-        idx = (start_idx + i) % 9
-        sub_minutes = (VIMSHOTTARI_YEARS[idx] / total_years) * nak_minutes
-        cumulative += sub_minutes
-        if offset_min <= cumulative:
-            sub_lord = VIMSHOTTARI_ORDER[idx]
-            break
-    return nak_name, star_lord, sub_lord
+_nak_and_sublord = nak_star_sub
 
 
 def _sign_and_lord(lon: float) -> tuple[str, str]:
-    sign = SIGNS[int(lon / 30) % 12]
+    sign = sign_of(lon)
     return sign, SIGN_LORDS[sign]
 
 
@@ -84,6 +41,7 @@ def compute_ruling_planets(
     tz_name: str = "Asia/Kolkata",
     significators: Optional[dict] = None,
     topic_houses: Optional[dict] = None,
+    location_label: Optional[str] = None,
 ) -> dict:
     """
     Compute full KP Ruling Planets for a given UTC datetime and location.
@@ -119,13 +77,9 @@ def compute_ruling_planets(
     moon_sign, moon_sign_lord = _sign_and_lord(moon_lon)
     _, moon_star_lord, moon_sub_lord = _nak_and_sublord(moon_lon)
 
-    # Day Lord
-    local_dt = datetime.fromtimestamp(
-        (jd - 2440587.5) * 86400.0, tz=pytz.timezone(tz_name)
-    )
-    py_weekday = local_dt.weekday()      # Mon=0 … Sun=6
-    astro_day  = (py_weekday + 1) % 7   # Sun=0 … Sat=6
-    day_lord   = VARA_LORDS[astro_day]
+    # Day Lord (civil weekday at the prediction location)
+    local_dt = jd_to_utc_datetime(jd).astimezone(pytz.timezone(tz_name))
+    day_lord = VARA_LORDS[astro_weekday(local_dt)]
 
     # Build RP list (deduplicated, preserving priority order)
     rp_ordered = [day_lord, asc_sign_lord, asc_star_lord, asc_sub_lord,
@@ -179,7 +133,8 @@ def compute_ruling_planets(
         "reference_time":      ref_time_str,
         "reference_lat":       round(lat, 4),
         "reference_lng":       round(lng, 4),
-        "reference_location":  tz_name,
+        "reference_location":  location_label or f"{lat:.4f}, {lng:.4f}",
+        "reference_tz":        tz_name,
         "ascendant_longitude": round(asc_sid, 4),
         "ascendant_sign":      asc_sign,
         "day_lord":            day_lord,

@@ -1,45 +1,42 @@
 """
-Promise and Denial analysis engine.
+Promise and Denial analysis engine — produces EVIDENCE for the AI layer.
 
-Determines whether an event is supported by the natal chart using
-KP principles. The verdict is qualitative — no numeric scores.
+Two outputs per topic, both evidence (not predictions):
 
-Verdict states (per PRD §8 feedback):
-    PROMISED             — strong multi-level support, CSL confirms
-    SUPPORTED            — good signification, dasha aligns
-    CONDITIONALLY SUPPORTED — partial evidence, mixed CSL or weak dasha
-    WEAK / INCONCLUSIVE  — insufficient significators or missing data
-    CONFLICTED           — roughly equal supporting and conflicting indicators
-    NOT SUPPORTED        — denial indicators outweigh support
+1. Activation score (frozen 3-layer model, AGENTS.md):
+       CSL Direct-House Support 0–3 + Dasha Permission 0–3 + Sig Quality 0–2
+       → scaled to 10; zero dasha coverage caps at 4.0, any dark house at 6.0.
 
-"Delayed" is NOT a verdict state — delay is an interpretation based on
-Saturn involvement, 8/12 house links, and dasha sequence, which the
-AI layer evaluates from supporting evidence.
+2. Verdict label (VERDICTS) — a band of the activation score, so the label can
+   never contradict the number:
+       STRONG   ≥ 8.0     ACTIVE ≥ 6.5     MODERATE ≥ 5.0
+       MIXED    ≥ 4.0     WEAK   <  4.0
+   The dark-house cap (6.0) keeps any topic with a dark house at MODERATE or below.
+
+Dasha Permission counts every L1–L4 significator link; Sig Quality counts L1–L3.
+
+"Delayed" is NOT a label — delay is an interpretation (Saturn, 8/12 links,
+dasha sequence) the AI layer makes from the evidence.
 """
 from __future__ import annotations
 
 from typing import Optional
 from schemas.event_houses import EVENT_HOUSES, DENIAL_HOUSES, TOPIC_LABELS
 
-VERDICTS = [
-    "STRONG",
-    "ACTIVE",
-    "MODERATE",
-    "MIXED",
-    "WEAK",
-]
+VERDICTS = ("STRONG", "ACTIVE", "MODERATE", "MIXED", "WEAK")
+VERDICT_BANDS: tuple[tuple[float, str], ...] = (
+    (8.0, "STRONG"), (6.5, "ACTIVE"), (5.0, "MODERATE"), (4.0, "MIXED"), (0.0, "WEAK"),
+)
+DASHA_MAX_LEVEL = 4
 
-# -----------------------------------------------------------------------
-# Manifestation map: topic → (threshold, ranked list of manifestations)
-# Threshold is the score/10.  The engine picks the group whose threshold
-# the current score meets or exceeds, then returns the ranked items.
-# -----------------------------------------------------------------------
-_M = [  # (min_score, manifestations_list)
-    (7.5, []),   # strong — filled per topic below
-    (4.5, []),   # moderate
-    (0.0, []),   # weak
-]
 
+def verdict_for_score(pct10: float) -> str:
+    for threshold, label in VERDICT_BANDS:
+        if pct10 >= threshold:
+            return label
+    return "WEAK"
+
+# Manifestation map: topic → [(min score/10, ranked manifestations)], highest tier first.
 MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
     "career": [
         (7.5, ["Promotion or significant role advancement",
@@ -65,6 +62,13 @@ MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
                "Internal transfer or lateral move"]),
         (0.0, ["Exploring options — concrete change not yet supported",
                "Restlessness without clear opening"]),
+    ],
+    "business": [
+        (7.5, ["Business expansion or a strong trading period",
+               "New venture, outlet, or partnership agreement"]),
+        (4.5, ["Steady trade with improving margins",
+               "Groundwork for expansion or new clients"]),
+        (0.0, ["Business maintenance phase — growth not yet strongly supported"]),
     ],
     "marriage": [
         (7.5, ["Marriage / formal commitment",
@@ -98,6 +102,12 @@ MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
         (4.5, ["Short travel or business trip", "Travel planning materialising"]),
         (0.0, ["Restlessness without confirmed travel window"]),
     ],
+    "travel_home": [
+        (7.5, ["Journey home or family travel window",
+               "Family gathering requiring travel"]),
+        (4.5, ["Short visit home or family-related trip under discussion"]),
+        (0.0, ["Home/family travel theme in background"]),
+    ],
     "foreign_settlement": [
         (7.5, ["Relocation abroad or long-term foreign assignment"]),
         (4.5, ["Visa / immigration process, foreign opportunity opening"]),
@@ -107,6 +117,12 @@ MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
         (7.5, ["Significant income increase, windfall, or investment gain"]),
         (4.5, ["Steady financial improvement, bonus, or savings milestone"]),
         (0.0, ["Modest financial movement — major wealth event not indicated"]),
+    ],
+    "expenses": [
+        (7.5, ["Heavy outflow window — travel, family, or investment spending",
+               "Large planned or unplanned expenditure"]),
+        (4.5, ["Above-normal spending; budget buffer advisable"]),
+        (0.0, ["Routine expenditure"]),
     ],
     "education": [
         (7.5, ["Major educational milestone, qualification, or admission"]),
@@ -181,13 +197,6 @@ def _rank_manifestations(topic: str, score_pct10: float, dark_houses: list[int])
         )
         return result
 
-PLANETS = ["Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu","Ketu"]
-SIGN_LORDS = {
-    "Aries":"Mars","Taurus":"Venus","Gemini":"Mercury","Cancer":"Moon",
-    "Leo":"Sun","Virgo":"Mercury","Libra":"Venus","Scorpio":"Mars",
-    "Sagittarius":"Jupiter","Capricorn":"Saturn","Aquarius":"Saturn","Pisces":"Jupiter",
-}
-
 
 def _signified_houses_for_planet(
     planet: str,
@@ -251,7 +260,7 @@ def _active_dasha_alignment(
     dasha_lords: list[str],
     primary_houses: list[int],
     strength_map: dict,
-    max_level: int = 3,
+    max_level: int = DASHA_MAX_LEVEL,
 ) -> tuple[list[str], list[str]]:
     """
     Check which active dasha lords (MD, AD, PD) signify primary_houses.
@@ -299,7 +308,7 @@ def compute_promise_denial(
         return {
             "topic": topic,
             "topic_label": topic_label,
-            "verdict": "WEAK / INCONCLUSIVE",
+            "verdict": "WEAK",
             "supporting_evidence": ["Unknown topic — no house mapping available"],
             "conflicting_evidence": [],
             "dasha_alignment": "",
@@ -419,7 +428,7 @@ def compute_promise_denial(
         lord_houses_in_topic = [
             h for h in primary_houses
             if h in strength_map.get(lord, {})
-            and strength_map[lord][h]["level"] <= 3
+            and strength_map[lord][h]["level"] <= DASHA_MAX_LEVEL
         ]
         if lord_houses_in_topic:
             lord_detail_parts.append(f"{lord}→H{','.join(str(h) for h in lord_houses_in_topic)}")
@@ -463,7 +472,7 @@ def compute_promise_denial(
         dasha_lords_for_h = [
             lord for lord in dasha_lords
             if h in strength_map.get(lord, {})
-            and strength_map[lord][h]["level"] <= 3
+            and strength_map[lord][h]["level"] <= DASHA_MAX_LEVEL
         ]
         house_activation[h] = {
             "house":             h,
@@ -488,27 +497,6 @@ def compute_promise_denial(
     csl_covered         = sum(1 for a in house_activation.values() if a["csl_ok"])
     dasha_covered_count = sum(1 for a in house_activation.values() if a["dasha_ok"])
 
-    # --- Verdict logic ---
-    s = len(supporting_evidence)
-    c = len(conflicting_evidence)
-    csl_ok = csl_covered >= max(1, (n_houses + 1) // 2)
-    dasha_ok = len(dasha_supporting) >= 2
-
-    if csl_ok and dasha_ok and s >= 3 and c == 0:
-        verdict = "STRONG"
-    elif csl_ok and dasha_ok and s >= 2:
-        verdict = "ACTIVE"
-    elif csl_ok and (dasha_ok or s >= 2) and c <= 1:
-        verdict = "MODERATE"
-    elif not csl_ok and not strong_sigs:
-        verdict = "WEAK"
-    elif s > 0 and c > 0 and abs(s - c) <= 1:
-        verdict = "MIXED"
-    elif s > 0 and c > s:
-        verdict = "MODERATE"
-    else:
-        verdict = "WEAK"
-
     # --- Scoring ---
     csl_score   = round(csl_covered / n_houses * 3, 2)
     dasha_score = round(dasha_covered_count / n_houses * 3, 2)
@@ -532,8 +520,7 @@ def compute_promise_denial(
     elif dark_houses:
         pct10 = min(pct10, 6.0)
 
-    rp_score = 0   # RP sub-score added by calling context when RPs are available
-    total_score = raw
+    verdict = verdict_for_score(pct10)
 
     return {
         "topic":                topic,
@@ -557,7 +544,7 @@ def compute_promise_denial(
             "csl_layer":    round(csl_score, 1),
             "dasha_layer":  round(dasha_score, 1),
             "sig_bonus":    sig_bonus,
-            "rp_bonus":     rp_score,
+            "rp_bonus":     0,   # RP is not a scoring layer (frozen model); kept for schema compatibility
             "dark_h":       dark_houses,
         },
     }

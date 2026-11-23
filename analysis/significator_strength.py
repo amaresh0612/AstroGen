@@ -1,42 +1,63 @@
 """
 KP Significator Strength Classification Engine.
 
-Classifies each planet's connection to each house at Level 1–4:
+Classical KP four-fold significators, strongest first. For planet P whose
+star (nakshatra) lord is S:
 
-    Level 1 (Direct Occupant):
-        Planet physically occupies the house (cuspal Placidus interval).
-        Strongest — planet carries the full vibration of that house.
+    Level 1 (In Star of Occupant):  S occupies the house.
+    Level 2 (Occupant):             P occupies the house (cuspal Placidus interval).
+    Level 3 (In Star of Owner):     S owns the sign on the house cusp.
+    Level 4 (Owner):                P owns the sign on the house cusp.
 
-    Level 2 (Star-Lord Link):
-        Planet is the nakshatra lord (star lord) of a planet that occupies a house.
-        Strong indirect link through the star-lord chain.
-
-    Level 3 (Sign Owner):
-        Planet owns the sign on the cusp of the house (sign lordship).
-        Standard significator role.
-
-    Level 4 (Indirect / Star of Owner):
-        Planet is the star lord of a planet that OWNS the house.
-        Weakest but still relevant for supporting analysis.
+Rahu / Ketu act as agents: besides their own L1–L4 links they carry the
+significations of their sign lord and of planets in the same sign, at the
+level those planets hold. A planet in the star of a node therefore also
+receives the node's agency houses (L1 for houses the agents occupy, L3 for
+houses they own).
 
 IMPORTANT: These are qualitative levels — no numeric scores are produced.
 """
 from __future__ import annotations
 
 from analysis.cuspal_houses import assign_cuspal_houses
+from analysis.kp_constants import SIGN_LORDS
 
 PLANETS = ["Sun","Moon","Mars","Mercury","Jupiter","Venus","Saturn","Rahu","Ketu"]
-SIGN_LORDS = {
-    "Aries":"Mars","Taurus":"Venus","Gemini":"Mercury","Cancer":"Moon",
-    "Leo":"Sun","Virgo":"Mercury","Libra":"Venus","Scorpio":"Mars",
-    "Sagittarius":"Jupiter","Capricorn":"Saturn","Aquarius":"Saturn","Pisces":"Jupiter",
-}
+NODES = ("Rahu", "Ketu")
 LEVEL_LABELS = {
-    1: "Direct Occupant",
-    2: "Star-Lord Link",
-    3: "Sign Owner",
-    4: "Indirect (Star of Owner)",
+    1: "In Star of Occupant",
+    2: "Occupant",
+    3: "In Star of Owner",
+    4: "Owner",
 }
+
+
+def _house_owners(houses: dict) -> dict[int, str]:
+    owners: dict[int, str] = {}
+    for h_str, hdata in houses.items():
+        try:
+            h = int(h_str)
+        except ValueError:
+            continue
+        owner = SIGN_LORDS.get(hdata.get("sign", ""), "")
+        if owner:
+            owners[h] = owner
+    return owners
+
+
+def _node_agents(node: str, planets: dict) -> list[str]:
+    """Planets a node represents: its sign lord, then planets in the same sign."""
+    ndata = planets.get(node, {})
+    agents: list[str] = []
+    sign_lord = ndata.get("sign_lord") or SIGN_LORDS.get(ndata.get("sign", ""), "")
+    if sign_lord and sign_lord not in NODES:
+        agents.append(sign_lord)
+    for q in PLANETS:
+        if q in NODES or q in agents:
+            continue
+        if ndata.get("sign") and planets.get(q, {}).get("sign") == ndata.get("sign"):
+            agents.append(q)
+    return agents
 
 
 def compute_significator_strength(
@@ -44,7 +65,7 @@ def compute_significator_strength(
     houses: dict,
 ) -> dict:
     """
-    Compute Level 1–4 significator strength for all planets across all 12 houses.
+    Compute classical KP Level 1–4 significators for all planets across 12 houses.
 
     Parameters
     ----------
@@ -60,67 +81,56 @@ def compute_significator_strength(
         ...  (only houses where a level 1–4 connection exists)
     }
     """
-    # Build occupancy map: house_num → list of planets in that house
-    occupants: dict[int, list[str]] = {h: [] for h in range(1, 13)}
-    for pname, pdata in planets.items():
-        h = pdata.get("house")
-        if isinstance(h, int) and 1 <= h <= 12:
-            occupants[h].append(pname)
+    owners = _house_owners(houses)
+    owned_by = {p: sorted(h for h, o in owners.items() if o == p) for p in PLANETS}
 
-    # Build house ownership: house_num → sign lord
-    house_owners: dict[int, str] = {}
-    for h_str, hdata in houses.items():
-        try:
-            h = int(h_str)
-        except ValueError:
-            continue
-        sign = hdata.get("sign", "")
-        owner = SIGN_LORDS.get(sign, "")
-        if owner:
-            house_owners[h] = owner
+    def occupied(p: str) -> int | None:
+        h = planets.get(p, {}).get("house")
+        return h if isinstance(h, int) and 1 <= h <= 12 else None
+
+    # Houses each planet "holds" for its star-dependants: occupation and ownership.
+    # For nodes, agency adds the agents' occupation/ownership.
+    held_occ: dict[str, list[tuple[int, str]]] = {}
+    held_own: dict[str, list[tuple[int, str]]] = {}
+    for p in PLANETS:
+        occ = [(occupied(p), p)] if occupied(p) else []
+        own = [(h, p) for h in owned_by[p]]
+        if p in NODES:
+            for a in _node_agents(p, planets):
+                if occupied(a):
+                    occ.append((occupied(a), a))
+                own.extend((h, a) for h in owned_by[a])
+        held_occ[p], held_own[p] = occ, own
 
     result: dict[str, dict] = {p: {} for p in PLANETS}
 
-    for house_num in range(1, 13):
-        owner = house_owners.get(house_num, "")
+    def add(p: str, h: int, level: int, reason: str) -> None:
+        cur = result[p].get(h)
+        if cur is None or level < cur["level"]:
+            result[p][h] = {"level": level, "level_label": LEVEL_LABELS[level], "reasons": [reason]}
+        elif level == cur["level"] and reason not in cur["reasons"]:
+            cur["reasons"].append(reason)
 
-        for pname in PLANETS:
-            pdata = planets.get(pname, {})
-            star_lord = pdata.get("star_lord", "")
-            reasons: list[str] = []
-            best_level: int | None = None
+    for p in PLANETS:
+        star = planets.get(p, {}).get("star_lord", "")
+        if star in held_occ:
+            for h, via in held_occ[star]:
+                tail = "" if via == star else f" (agent of {via} in H{h})"
+                add(p, h, 1, f"In star of {star}, occupant of H{h}{tail}")
+        if occupied(p):
+            add(p, occupied(p), 2, f"Occupies H{occupied(p)}")
+        if star in held_own:
+            for h, via in held_own[star]:
+                tail = "" if via == star else f" (agent of {via}, owner of H{h})"
+                add(p, h, 3, f"In star of {star}, owner of H{h}{tail}")
+        for h in owned_by[p]:
+            add(p, h, 4, f"Owns H{h}")
 
-            # Level 1: planet occupies this house
-            if pdata.get("house") == house_num:
-                best_level = 1
-                reasons.append(f"Occupies house {house_num}")
-
-            # Level 2: planet is star lord of an occupant of this house
-            if best_level != 1:
-                for occ in occupants.get(house_num, []):
-                    if planets.get(occ, {}).get("star_lord") == pname:
-                        best_level = 2
-                        reasons.append(f"Star lord of {occ} in house {house_num}")
-                        break
-
-            # Level 3: planet owns this house
-            if best_level is None and owner == pname:
-                best_level = 3
-                reasons.append(f"Sign owner of house {house_num}")
-
-            # Level 4: planet is star lord of the house owner
-            if best_level is None and owner:
-                owner_data = planets.get(owner, {})
-                if owner_data.get("star_lord") == pname:
-                    best_level = 4
-                    reasons.append(f"Star lord of {owner} (owner of house {house_num})")
-
-            if best_level is not None:
-                result[pname][house_num] = {
-                    "level":       best_level,
-                    "level_label": LEVEL_LABELS[best_level],
-                    "reasons":     reasons,
-                }
+    # Node agency: a node also signifies whatever its agents signify, at their level.
+    for node in NODES:
+        for a in _node_agents(node, planets):
+            for h, info in list(result[a].items()):
+                add(node, h, info["level"], f"Agent of {a}: {info['reasons'][0]}")
 
     return result
 
@@ -190,20 +200,33 @@ def _deserialize_strength_map(data: dict) -> dict:
     return out
 
 
-def compute_significator_strength_from_natal(natal_ref: dict) -> dict:
-    """
-    Canonical strength map for a natal reference.
+def significators_are_current(natal_ref: dict) -> bool:
+    """True when the stored significators were built with this engine's method."""
+    method = (natal_ref.get("kp_methodology") or {}).get("version")
+    return (method == KP_METHODOLOGY["version"]
+            and bool(natal_ref.get("significator_matrix"))
+            and bool(natal_ref.get("significators")))
 
-    Uses locked significator_matrix when present; otherwise computes from
-    planets/houses and writes nothing back (caller must persist if needed).
+
+def natal_significators(natal_ref: dict) -> tuple[dict, dict]:
     """
-    stored = natal_ref.get("significator_matrix")
-    if stored:
-        return _deserialize_strength_map(stored)
-    return compute_significator_strength(
+    (significators, strength_map) for a natal reference.
+
+    Stored values are used only when built with the current method; otherwise
+    they are recomputed in memory from the locked planets/cusps (nothing is
+    written back — the natal file stays immutable).
+    """
+    if significators_are_current(natal_ref):
+        return natal_ref["significators"], _deserialize_strength_map(natal_ref["significator_matrix"])
+    return build_natal_significator_block(
         natal_ref.get("planets", {}),
         natal_ref.get("houses", {}),
     )
+
+
+def compute_significator_strength_from_natal(natal_ref: dict) -> dict:
+    """Canonical strength map for a natal reference (see natal_significators)."""
+    return natal_significators(natal_ref)[1]
 
 
 def build_natal_significator_block(
@@ -254,6 +277,38 @@ def build_natal_significator_block(
     return significators, strength_map
 
 
+APP_HOUSE_KEYS = ["1st (Lagna)", "2nd", "3rd", "4th", "5th", "6th",
+                  "7th", "8th", "9th", "10th", "11th", "12th"]
+
+
+def significators_from_app_chart(chart_result: dict) -> dict:
+    """
+    Significators for an app.py `calculate_comprehensive_chart` result.
+
+    Same engine as natal_ref (cuspal occupancy, classical levels, node agency).
+    Returns planet → {occupied_house, owned_houses, signified_houses, ...}.
+    """
+    planets_raw = chart_result.get("planets", {}) or {}
+    houses_raw = chart_result.get("houses", {}) or {}
+    planets = {
+        p: {
+            "longitude": float(d.get("full_degree", 0.0)) % 360.0,
+            "sign": d.get("sign", ""),
+            "sign_lord": SIGN_LORDS.get(d.get("sign", ""), ""),
+            "star_lord": d.get("nakshatra_lord", ""),
+        }
+        for p, d in planets_raw.items() if p in PLANETS
+    }
+    houses = {
+        str(i): {
+            "cusp_degree": float((houses_raw.get(key) or {}).get("cusp_degree", 0.0)) % 360.0,
+            "sign": (houses_raw.get(key) or {}).get("sign", ""),
+        }
+        for i, key in enumerate(APP_HOUSE_KEYS, 1)
+    }
+    return build_natal_significator_block(planets, houses)[0]
+
+
 KP_METHODOLOGY = {
     "significator_engine": "analysis.significator_strength.compute_significator_strength",
     "occupancy_method": "cuspal_placidus_interval",
@@ -262,12 +317,16 @@ KP_METHODOLOGY = {
         "NOT whole-sign. Whole-sign may be stored separately as house_whole_sign."
     ),
     "levels": {
-        "1": "Direct occupant (cuspal house interval)",
-        "2": "Star lord of a planet occupying the house",
-        "3": "Sign owner of the house cusp",
-        "4": "Star lord of the sign owner",
+        "1": "Planet in the star of an occupant of the house",
+        "2": "Occupant of the house (cuspal interval)",
+        "3": "Planet in the star of the house owner",
+        "4": "Owner of the sign on the house cusp",
     },
+    "node_agency": (
+        "Rahu/Ketu also signify what their sign lord and same-sign planets signify; "
+        "planets in a node's star inherit the agents' occupied (L1) and owned (L3) houses."
+    ),
     "signified_houses": "All houses with any L1–L4 connection (matches PDF matrix)",
-    "signified_houses_l1_l3": "L1–L3 only — used for primary event activation analysis",
-    "version": "1.0",
+    "signified_houses_l1_l3": "L1–L3 only — strong significators (Sig Quality layer)",
+    "version": "2.0",
 }

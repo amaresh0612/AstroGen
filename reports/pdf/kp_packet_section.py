@@ -62,8 +62,9 @@ def build_kp_packet_section(
     # ── 1. Significator strength table ───────────────────────────
     story.append(Paragraph("KP Significator Strength", title_sty))
     story.append(Paragraph(
-        "Level 1 = Direct Occupant  |  Level 2 = Star-Lord Link  |  "
-        "Level 3 = Sign Owner  |  Level 4 = Indirect (Star of Owner)",
+        "Level 1 = In Star of Occupant  |  Level 2 = Occupant  |  "
+        "Level 3 = In Star of Owner  |  Level 4 = Owner  |  "
+        "Rahu/Ketu also carry their sign lord's and same-sign planets' houses",
         styles["Normal"],
     ))
     story.append(Spacer(1, 0.1 * inch))
@@ -103,11 +104,12 @@ def build_kp_packet_section(
         "for the <b>same</b> house? "
         "(Simplified scoring test — not full classical KP promise.) "
         "<b>Layer 2 — Dasha Permission</b> (0–3): does any active MD/AD/PD lord signify each "
-        "primary house? This is the gating factor — without dasha permission the score is capped. "
+        "primary house (L1–L4)? This is the gating factor — without dasha permission the score is capped. "
         "<b>Layer 3 — Significator Quality</b> (0–2): L1/L2/L3 natal significators for the topic. "
         "Formula: (CSL + Dasha + Sigs) / 8 × 10. "
         "Hard caps: zero dasha coverage → ≤4.0; any completely dark house → ≤6.0. "
-        "RP confirmation adds a +0.5 bonus when computed at report time.",
+        "Label bands: STRONG ≥8.0, ACTIVE ≥6.5, MODERATE ≥5.0, MIXED ≥4.0, WEAK &lt;4.0. "
+        "Ruling Planets are reported separately and do not change the score.",
         ParagraphStyle("score_note", parent=styles["Normal"], fontSize=7,
                        textColor=colors.HexColor("#444444"), leading=9),
     ))

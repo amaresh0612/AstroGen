@@ -32,6 +32,8 @@ poetry.lock
 # --- Cache / Logs ---
 logs/
 *.log
+streamlit_*.txt
+.pytest_cache/
 .cache/
 *.sqlite
 *.db

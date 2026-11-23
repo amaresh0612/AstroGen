@@ -18,24 +18,8 @@ from typing import Optional
 
 import swisseph as swe
 
-SIGNS = [
-    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces",
-]
-NAKSHATRAS = [
-    ("Ashwini","Ketu"),("Bharani","Venus"),("Krittika","Sun"),
-    ("Rohini","Moon"),("Mrigashira","Mars"),("Ardra","Rahu"),
-    ("Punarvasu","Jupiter"),("Pushya","Saturn"),("Ashlesha","Mercury"),
-    ("Magha","Ketu"),("Purva Phalguni","Venus"),("Uttara Phalguni","Sun"),
-    ("Hasta","Moon"),("Chitra","Mars"),("Swati","Rahu"),
-    ("Vishakha","Jupiter"),("Anuradha","Saturn"),("Jyeshtha","Mercury"),
-    ("Mula","Ketu"),("Purva Ashadha","Venus"),("Uttara Ashadha","Sun"),
-    ("Shravana","Moon"),("Dhanishta","Mars"),("Shatabhisha","Rahu"),
-    ("Purva Bhadrapada","Jupiter"),("Uttara Bhadrapada","Saturn"),("Revati","Mercury"),
-]
-VIMSHOTTARI_ORDER = ["Ketu","Venus","Sun","Moon","Mars","Rahu","Jupiter","Saturn","Mercury"]
-VIMSHOTTARI_YEARS = [7, 20, 6, 10, 7, 18, 16, 19, 17]
-TOTAL_YEARS = sum(VIMSHOTTARI_YEARS)
+from analysis.cuspal_houses import get_cusp_longitudes, house_from_longitude, whole_sign_house
+from analysis.kp_constants import SIGNS, nak_star_sub, utc_now_iso
 
 PLANET_IDS = {
     "Jupiter": swe.JUPITER,
@@ -59,39 +43,13 @@ def _sid_lon(jd: float, body: int) -> float:
     return float(res[0]) % 360.0
 
 
-def _nak_star_sub(lon: float) -> tuple[str, str, str]:
-    nak_width  = 360.0 / 27.0
-    nak_idx    = int(lon / nak_width) % 27
-    name, star = NAKSHATRAS[nak_idx]
-    nak_min    = nak_width * 60.0
-    offset_min = (lon % nak_width) * 60.0
-    s_idx      = VIMSHOTTARI_ORDER.index(star)
-    cum        = 0.0
-    sub        = star
-    for i in range(9):
-        idx = (s_idx + i) % 9
-        sub_min = (VIMSHOTTARI_YEARS[idx] / TOTAL_YEARS) * nak_min
-        cum += sub_min
-        if offset_min <= cum:
-            sub = VIMSHOTTARI_ORDER[idx]
-            break
-    return name, star, sub
-
-
-def _transit_house(transit_lon: float, asc_lon: float) -> int:
-    """Whole-sign house of transit planet relative to natal ascendant."""
-    asc_sign_idx = int(asc_lon / 30) % 12
-    tr_sign_idx  = int(transit_lon / 30) % 12
-    return ((tr_sign_idx - asc_sign_idx) % 12) + 1
-
-
 def _relevant_natal_planets(transit_house: int, natal_planets: dict) -> list[str]:
-    """Planets natally in or owning the transit house."""
-    result = []
-    for pname, pdata in natal_planets.items():
-        if pdata.get("house") == transit_house:
-            result.append(pname)
-    return result
+    """Natal planets occupying the same cuspal house as the transit."""
+    return [p for p, d in natal_planets.items() if d.get("house") == transit_house]
+
+
+def _same_sign_natal_planets(sign: str, natal_planets: dict) -> list[str]:
+    return [p for p, d in natal_planets.items() if d.get("sign") == sign]
 
 
 def _jd(d: date, hour: float = 12.0) -> float:
@@ -190,8 +148,12 @@ def _scan_slow_ingresses(
     end_date: date,
     include_interpretation: bool,
     event_house_map: Optional[dict] = None,
+    natal_houses: Optional[dict] = None,
 ) -> list[dict]:
     """Shared ingress scanner — single authoritative date engine."""
+    if not natal_houses:
+        raise ValueError("natal_houses (Placidus cusps) required for cuspal transit houses")
+    cusps = get_cusp_longitudes(natal_houses)
     results: list[dict] = []
     planets_to_scan = {
         "Jupiter": swe.JUPITER,
@@ -199,7 +161,7 @@ def _scan_slow_ingresses(
         "Rahu":    swe.TRUE_NODE,
         "Ketu":    None,
     }
-    calc_ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    calc_ts = utc_now_iso()
 
     for pname, pid in planets_to_scan.items():
         scan_start = from_date - timedelta(days=7)
@@ -222,8 +184,9 @@ def _scan_slow_ingresses(
 
                 if ingress_date >= from_date:
                     ing_lon = _planet_lon(pname, pid, jd_ing)
-                    nak, star_lord, sub_lord = _nak_star_sub(ing_lon)
-                    tr_house = _transit_house(ing_lon, natal_asc_lon)
+                    nak, star_lord, sub_lord = nak_star_sub(ing_lon)
+                    tr_house = house_from_longitude(ing_lon, cusps)
+                    tr_house_sign = whole_sign_house(ing_lon, natal_asc_lon)
                     rel_planets = _relevant_natal_planets(tr_house, natal_planets)
                     local_iso = _utc_iso_to_local(
                         utc_iso, TRANSIT_ENGINE_META["timezone_display"],
@@ -242,6 +205,7 @@ def _scan_slow_ingresses(
                         "timezone":               TRANSIT_ENGINE_META["timezone_display"],
                         "calculation_timestamp":  calc_ts,
                         "transit_house":          tr_house,
+                        "transit_house_sign":     tr_house_sign,
                         "transit_nakshatra":      nak,
                         "star_lord":              star_lord,
                         "sub_lord":               sub_lord,
@@ -279,7 +243,9 @@ def _scan_slow_ingresses(
                             "notes":                  "; ".join(notes_parts) if notes_parts else "",
                         })
                     else:
-                        entry["conjunct_natal_planets"] = rel_planets
+                        entry["conjunct_natal_planets"] = _same_sign_natal_planets(
+                            SIGNS[sign_idx], natal_planets,
+                        )
 
                     results.append(entry)
 
@@ -296,6 +262,7 @@ def compute_long_term_transits(
     from_date: Optional[date] = None,
     horizon_years: int = 5,
     event_house_map: Optional[dict] = None,
+    natal_houses: Optional[dict] = None,
 ) -> list[dict]:
     """
     Compute Jupiter / Saturn / Rahu / Ketu sign-change windows
@@ -304,12 +271,19 @@ def compute_long_term_transits(
     if from_date is None:
         from_date = date.today()
 
-    end_date = date(from_date.year + horizon_years, from_date.month, from_date.day)
     return _scan_slow_ingresses(
-        natal_asc_lon, natal_planets, from_date, end_date,
+        natal_asc_lon, natal_planets, from_date, _horizon_end(from_date, horizon_years),
         include_interpretation=True,
         event_house_map=event_house_map,
+        natal_houses=natal_houses,
     )
+
+
+def _horizon_end(from_date: date, horizon_years: int) -> date:
+    try:
+        return from_date.replace(year=from_date.year + horizon_years)
+    except ValueError:  # 29 Feb
+        return from_date.replace(year=from_date.year + horizon_years, day=28)
 
 
 def compute_long_term_transits_raw(
@@ -317,6 +291,7 @@ def compute_long_term_transits_raw(
     natal_planets: dict,
     from_date: Optional[date] = None,
     horizon_years: int = 5,
+    natal_houses: Optional[dict] = None,
 ) -> list[dict]:
     """
     Raw slow-planet ingress data — calculations only, no interpretation fields.
@@ -324,8 +299,8 @@ def compute_long_term_transits_raw(
     if from_date is None:
         from_date = date.today()
 
-    end_date = date(from_date.year + horizon_years, from_date.month, from_date.day)
     return _scan_slow_ingresses(
-        natal_asc_lon, natal_planets, from_date, end_date,
+        natal_asc_lon, natal_planets, from_date, _horizon_end(from_date, horizon_years),
         include_interpretation=False,
+        natal_houses=natal_houses,
     )
