@@ -84,8 +84,29 @@ The PDF must **not** contain statements like "Promotion is likely", "You will re
 |------|----------|------|
 | `natal_ref.json` | Birth, planets, cusps, CSLs, significators, locked dasha | Immutable natal source of truth |
 | `prediction_results.json` | Dynamic context: panchanga, kalam, hora, RP, transits, event evidence | AI evidence feed for a specific date/time/location |
+| `*_90day_pack.json` | Every date/time-dependent calculation for a coverage period, including pre-stored RP | Static feed the AI predicts from without the app |
 
 Never overwrite `natal_ref.json` dynamically. Never merge prediction data into it.
+
+### 90-day pack — schema 2.2
+
+The pack is generated **once per coverage period**; every question inside that
+period is answered from the file. See `docs/static_pack_prediction.md`.
+
+- `days[].ruling_planets` — day lord, gapless ascendant and Moon
+  sign/star/sub intervals from local midnight to local midnight, and a
+  seven-part snapshot at the reference time. `start`/`end` are local
+  wall-clock, half-open `[start, end)`, `24:00:00` = next local midnight.
+  Resolve an exact-time RP query by locating the containing interval; use the
+  reference snapshot only when the question names no time.
+- `rp_trigger_windows` — per-topic activation. `days[]` rows carry the full
+  counts and minutes (aggregate from these); `windows[]` lists at most 6 best
+  moments per topic per day (name specific moments from these). The criterion
+  is KP level-based, gated on dasha permission — see the doc.
+- `sukshma_timeline` — every Sukshma window overlapping the coverage period,
+  because `days[].dasha` samples only the reference time.
+- Never reuse one day's RP for another date, and never treat `generated_at`
+  as the prediction date.
 
 ### Dasha lock
 
@@ -128,6 +149,9 @@ Fixtures use a fictional subject only. Parity tests load `app.py` functions via 
 | `analysis/transits.py` | Sidereal transit snapshot; `transit_house` = natal Placidus cusp interval |
 | `scripts/generate_natal_ref.py` | Standalone natal_ref builder (planets = tropical − Lahiri ayanamsa, as `app.py`) |
 | `analysis/fine_windows.py` | Sukshma/Prana windows with signified houses (evidence, not score) |
+| `analysis/rp_windows.py` | Exact ascendant/Moon sign-star-sub intervals for a local day; `rp_at_local_time` lookup |
+| `analysis/rp_triggers.py` | Per-topic RP activation windows, gated on dasha permission |
+| `analysis/pack_builder.py` | 90-day static pack (schema 2.2) + its validation layers |
 | `tests/` | pytest suite: app.py parity, golden chart, dasha lock, location rule, engines, KP significators |
 | `reports/` | PDF builders: enhanced_pdf, almanac_section, kp_packet_section |
 | `schemas/` | Typed dicts: natal_ref, event_houses, almanac_row, prediction_context |

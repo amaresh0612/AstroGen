@@ -1,5 +1,5 @@
 """
-90-Day AI-Ready Astro Calculation Pack Builder — v2.1.
+90-Day AI-Ready Astro Calculation Pack Builder — v2.2.
 
 Pure time-dependent calculations only. Static natal data, event rules, and
 long-term transits live in separate JSON files referenced by filename.
@@ -8,9 +8,14 @@ Architecture:
     natal_ref.json          → immutable KP source of truth
     kp_rules.json           → topic house mappings + methodology
     longterm_transits_*.json → slow-planet ingress calculations
-    90day_pack.json         → daily panchanga/kalam/hora/dasha/transits
+    90day_pack.json         → daily panchanga/kalam/hora/dasha/transits/RP
 
-Ruling Planets are NOT pre-stored — calculate at exact query time.
+Ruling Planets ARE pre-stored as of v2.2: every day carries gapless ascendant
+and Moon sign/star/sub intervals covering local midnight to local midnight,
+plus a seven-part snapshot at the pack's reference time. An exact-time RP
+question is answered by locating the interval that contains the queried time —
+no recalculation and no website access. Topic activation is precomputed once
+into the root-level ``rp_trigger_windows`` block.
 """
 from __future__ import annotations
 
@@ -33,15 +38,20 @@ from analysis.reference_exports import longterm_transits_filename
 from analysis.significator_strength import (
     KP_METHODOLOGY, build_natal_significator_block, natal_significators, significators_are_current,
 )
-from analysis.fine_windows import lord_house_links
+from analysis.fine_windows import fine_dasha_windows, lord_house_links
 from analysis.kp_constants import (
     GULIKA_SLOTS, RAHU_SLOTS, SIGN_LORDS, YAMA_SLOTS,
     astro_weekday, jd_to_utc_datetime, localize, nak_star_sub, sign_of, utc_now_iso,
 )
+from analysis.rp_triggers import build_rp_trigger_windows
+from analysis.rp_windows import (
+    ASC_INTERVALS_PER_DAY_MAX, ASC_INTERVALS_PER_DAY_MIN, RP_INTERVAL_FIELDS, build_day_rp,
+)
 from analysis.transits import TRANSIT_HOUSE_BASIS, transit_snapshot
+from schemas.event_houses import EVENT_HOUSES
 
-SCHEMA_VERSION = "2.1"
-CALC_ENGINE_VERSION = "AstroGen-KP-v2.1"
+SCHEMA_VERSION = "2.2"
+CALC_ENGINE_VERSION = "AstroGen-KP-v2.2"
 
 
 def _jd_to_iso(jd: float, tz: pytz.BaseTzInfo) -> str:
@@ -281,10 +291,29 @@ def build_90day_pack(
             "numerology": num_out,
             "dasha": dasha_out,
             "transits": transits_out,
+            "ruling_planets": build_day_rp(
+                day, prediction_lat, prediction_lng, prediction_tz, reference_time,
+            ),
         })
+
+    significators_block, strength_map = natal_significators(natal_ref)
+    rp_triggers = build_rp_trigger_windows(days_list, strength_map)
+
+    # Per-day dasha is sampled at the reference time, so a Sukshma shorter than
+    # a day could fall between two samples. The full sequence makes every
+    # transition in the coverage window visible.
+    last_day = start_date + timedelta(days=num_days)
+    sukshma_timeline = fine_dasha_windows(
+        natal_ref,
+        datetime(start_date.year, start_date.month, start_date.day),
+        datetime(last_day.year, last_day.month, last_day.day),
+        significators_block,
+        "sukshma",
+    )
 
     validation = _validate(
         days_list, natal_ref, prediction_lat, prediction_lng, num_days, reference_time,
+        rp_triggers, prediction_tz,
     )
 
     return {
@@ -300,8 +329,34 @@ def build_90day_pack(
             "Load natal data from natal_reference_file. "
             "Event rules from kp_rules.json. "
             "Long-term transits from longterm_transits.json. "
-            "Ruling Planets: calculate dynamically at exact query time."
+            "Ruling Planets are pre-stored per day (schema 2.2): use "
+            "days[].ruling_planets.ascendant_windows / moon_windows for an exact-time "
+            "query, and days[].ruling_planets.reference_snapshot only when no time is "
+            "given. Never reuse one day's RP for another date."
         ),
+        "usage": {
+            "date_selection": (
+                "Select days[] by the requested date range. The pack generation date is "
+                "metadata only — never treat it as the prediction date."
+            ),
+            "exact_time_query": (
+                "Find the ascendant_windows and moon_windows row whose [start, end) "
+                "contains the local time, then combine with ruling_planets.day_lord."
+            ),
+            "monthly_query": (
+                "Aggregate every day of the requested month: dasha transitions, "
+                "rp_trigger_windows.topics[topic].days rows and listed windows. Do not "
+                "generalise from a single day's snapshot."
+            ),
+            "evidence_order": (
+                "Natal promise (cuspal sublord) → dasha permission → RP activation → "
+                "transit trigger. RP convergence alone is never a verdict."
+            ),
+            "out_of_range": (
+                "Dates outside valid_from..valid_to have no stored RP or panchanga here. "
+                "Say so explicitly; never invent RP windows or planetary positions."
+            ),
+        },
         "natal_reference_file": natal_ref_file,
         "natal_reference": {
             **natal_fp,
@@ -338,6 +393,15 @@ def build_90day_pack(
             "timezone": prediction_tz,
             "note": "Birth/natal location is SEPARATE — stored in natal_ref.json only",
         },
+        "sukshma_timeline": {
+            "note": (
+                "Every Sukshma window overlapping the coverage period, in order, beneath "
+                "the locked MD/AD/PD. Use this to name dasha transitions in a date range; "
+                "days[].dasha samples only the reference time and can step over a short one."
+            ),
+            "windows": sukshma_timeline,
+        },
+        "rp_trigger_windows": rp_triggers,
         "validation": validation,
         "days": days_list,
     }
@@ -347,6 +411,101 @@ def _status(passed: bool) -> str:
     return "PASS" if passed else "FAIL"
 
 
+def _rp_seconds(clock: str) -> int:
+    h, m, s = (int(x) for x in clock.split(":"))
+    return h * 3600 + m * 60 + s
+
+
+def _validate_rp(days_list: list[dict], reference_time: str, tz_name: str) -> tuple[list[str], dict]:
+    """Daily RP blocks: presence, timezone, gapless local-day coverage, completeness."""
+    issues: list[str] = []
+    asc_total = moon_total = 0
+
+    for d in days_list:
+        rp = d.get("ruling_planets")
+        if not rp:
+            issues.append(f"{d['date']}: no ruling_planets block")
+            continue
+        if rp.get("timezone") != tz_name:
+            issues.append(f"{d['date']}: RP timezone {rp.get('timezone')} != {tz_name}")
+        if rp.get("interval_fields") != RP_INTERVAL_FIELDS:
+            issues.append(f"{d['date']}: RP interval_fields do not match the engine")
+        snap = rp.get("reference_snapshot", {})
+        if snap.get("reference_time") != reference_time:
+            issues.append(
+                f"{d['date']}: RP snapshot at {snap.get('reference_time')} != pack reference {reference_time}"
+            )
+        if not (snap.get("ascendant", {}).get("sub_lord") and snap.get("moon", {}).get("sub_lord")):
+            issues.append(f"{d['date']}: RP reference snapshot incomplete")
+
+        span = rp.get("coverage", {}).get("local_day_minutes")
+        for name, rows in (("ascendant", rp.get("ascendant_windows", [])),
+                           ("moon", rp.get("moon_windows", []))):
+            if not rows:
+                issues.append(f"{d['date']}: no {name} RP windows")
+                continue
+            if rows[0][0] != "00:00:00" or rows[-1][1] != "24:00:00":
+                issues.append(
+                    f"{d['date']}: {name} windows span {rows[0][0]}–{rows[-1][1]}, "
+                    "not the full local day"
+                )
+            for prev, nxt in zip(rows, rows[1:]):
+                if prev[1] != nxt[0]:
+                    issues.append(f"{d['date']}: {name} gap/overlap at {prev[1]} → {nxt[0]}")
+                    break
+            if any(_rp_seconds(r[1]) <= _rp_seconds(r[0]) for r in rows):
+                issues.append(f"{d['date']}: {name} window with non-positive duration")
+
+        asc_n, moon_n = len(rp.get("ascendant_windows", [])), len(rp.get("moon_windows", []))
+        asc_total += asc_n
+        moon_total += moon_n
+        if span == 1440 and not (ASC_INTERVALS_PER_DAY_MIN <= asc_n <= ASC_INTERVALS_PER_DAY_MAX):
+            issues.append(
+                f"{d['date']}: {asc_n} ascendant intervals is outside the expected "
+                f"{ASC_INTERVALS_PER_DAY_MIN}–{ASC_INTERVALS_PER_DAY_MAX} band — a change may be missing"
+            )
+        if len(issues) >= 8:
+            break
+
+    stats = {
+        "days_with_rp": sum(1 for d in days_list if d.get("ruling_planets")),
+        "ascendant_intervals": asc_total,
+        "moon_intervals": moon_total,
+    }
+    return issues, stats
+
+
+def _validate_triggers(rp_triggers: dict, days_list: list[dict]) -> tuple[list[str], dict]:
+    """Trigger windows: topic coverage, valid significators, in-range dates."""
+    issues: list[str] = []
+    topics = (rp_triggers or {}).get("topics", {})
+    pack_dates = {d["date"] for d in days_list}
+
+    missing = [t for t in EVENT_HOUSES if t not in topics]
+    if missing:
+        issues.append(f"kp_rules topics with no trigger section: {missing}")
+
+    per_topic: dict[str, int] = {}
+    for topic, block in topics.items():
+        sigs = set(block.get("significators", {}).get("l1_l2", []))
+        rows = block.get("windows", [])
+        per_topic[topic] = len(rows)
+        if len(block.get("days", [])) != len(days_list):
+            issues.append(f"{topic}: {len(block.get('days', []))} day rows for {len(days_list)} days")
+        for row in rows:
+            if row[0] not in pack_dates:
+                issues.append(f"{topic}: trigger window on {row[0]} is outside the pack coverage")
+                break
+            if not set(row[11]) <= sigs:
+                issues.append(f"{topic}: window on {row[0]} cites a non-significator {row[11]}")
+                break
+            if _rp_seconds(row[2]) <= _rp_seconds(row[1]):
+                issues.append(f"{topic}: window on {row[0]} has non-positive duration")
+                break
+
+    return issues, per_topic
+
+
 def _validate(
     days_list: list[dict],
     natal_ref: dict,
@@ -354,6 +513,8 @@ def _validate(
     pred_lng: float,
     expected_days: int,
     reference_time: str,
+    rp_triggers: Optional[dict] = None,
+    tz_name: str = "",
 ) -> dict:
 
     schema_issues: list[str] = []
@@ -501,9 +662,23 @@ def _validate(
     if iso_bad:
         hora_issues.append(f"Hora missing ISO timestamps on {len(iso_bad)} days")
 
+    rp_issues, rp_stats = _validate_rp(days_list, reference_time, tz_name)
+    trigger_issues, trigger_counts = _validate_triggers(rp_triggers or {}, days_list)
+
+    dst_days = [d["date"] for d in days_list
+                if (d.get("ruling_planets", {}).get("coverage", {})
+                     .get("local_day_minutes", 1440)) != 1440]
+    if dst_days:
+        warnings.append(
+            f"{len(dst_days)} day(s) are not 1440 minutes long (DST transition): "
+            f"{dst_days[:3]} — wall-clock RP labels repeat or skip on those days; "
+            "the interval order is authoritative."
+        )
+
     all_issues = (
         schema_issues + internal_issues + natal_issues + occupancy_issues +
-        semantic_issues + panch_issues + kalam_issues + hora_issues + dasha_issues
+        semantic_issues + panch_issues + kalam_issues + hora_issues + dasha_issues +
+        rp_issues + trigger_issues
     )
 
     layers = {
@@ -516,6 +691,8 @@ def _validate(
         "kalam": _status(not kalam_issues),
         "hora": _status(not hora_issues),
         "dasha_lock": _status(not dasha_issues),
+        "ruling_planets": _status(not rp_issues),
+        "rp_trigger_windows": _status(not trigger_issues),
     }
     overall_pass = all(v == "PASS" for v in layers.values())
 
@@ -527,4 +704,14 @@ def _validate(
         "summary": "All checks passed" if overall_pass
                    else f"{len(all_issues)} issue(s): " + "; ".join(all_issues[:5]),
         "passed": overall_pass,
+        "rp_summary": {
+            "days": len(days_list),
+            "coverage_from": days_list[0]["date"] if days_list else None,
+            "coverage_to": days_list[-1]["date"] if days_list else None,
+            "reference_timezone": tz_name,
+            "reference_time": reference_time,
+            **rp_stats,
+            "trigger_windows_per_topic": trigger_counts,
+            "trigger_windows_total": sum(trigger_counts.values()),
+        },
     }

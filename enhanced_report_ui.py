@@ -24,12 +24,15 @@ from analysis.kp_constants import SIGN_LORDS, utc_now_iso
 from schemas.event_houses import ALL_TOPICS
 
 
-def _json_bytes(data: dict) -> bytes:
+def _json_bytes(data: dict, compact: bool = False) -> bytes:
     def _serial(obj):
         if hasattr(obj, "isoformat"):
             return obj.isoformat()
         raise TypeError(f"Not serialisable: {type(obj)}")
-    return json.dumps(data, indent=2, ensure_ascii=False, default=_serial).encode("utf-8")
+    # The 90-day pack holds ~23k single-line RP interval arrays; indenting them
+    # puts every element on its own line and inflates the file about 2.5x.
+    layout = {"separators": (",", ":")} if compact else {"indent": 2}
+    return json.dumps(data, ensure_ascii=False, default=_serial, **layout).encode("utf-8")
 
 
 def _ai_pack_zip(
@@ -46,7 +49,7 @@ def _ai_pack_zip(
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(natal_fn, _json_bytes(natal_ref))
-        zf.writestr(pack_fn, _json_bytes(pack))
+        zf.writestr(pack_fn, _json_bytes(pack, compact=True))
         zf.writestr(rules_fn, _json_bytes(event_rules))
         zf.writestr(lt_fn, _json_bytes(lt_transits))
     return buf.getvalue()
@@ -560,7 +563,9 @@ def render_enhanced_report_section(
             pack_ref_time = st.text_input(
                 "Transit snapshot time (HH:MM local)",
                 value="09:00", key="enh_pack_reftime",
-                help="Daily transit positions at this local time. RP is not pre-stored.",
+                help=("Daily transit positions and the daily Ruling Planet snapshot use "
+                      "this local time. Full RP intervals for every day are stored "
+                      "regardless, so any exact time can be looked up later."),
             )
         pack_loc = st.text_input(
             "Prediction location (defaults to section 2 if blank)",
