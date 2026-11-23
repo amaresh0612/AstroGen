@@ -1,5 +1,5 @@
 """
-90-Day AI-Ready Astro Calculation Pack Builder — v2.2.
+90-Day AI-Ready Astro Calculation Pack Builder — v2.3.
 
 Pure time-dependent calculations only. Static natal data, event rules, and
 long-term transits live in separate JSON files referenced by filename.
@@ -10,12 +10,17 @@ Architecture:
     longterm_transits_*.json → slow-planet ingress calculations
     90day_pack.json         → daily panchanga/kalam/hora/dasha/transits/RP
 
-Ruling Planets ARE pre-stored as of v2.2: every day carries gapless ascendant
-and Moon sign/star/sub intervals covering local midnight to local midnight,
-plus a seven-part snapshot at the pack's reference time. An exact-time RP
-question is answered by locating the interval that contains the queried time —
-no recalculation and no website access. Topic activation is precomputed once
-into the root-level ``rp_trigger_windows`` block.
+v2.2+: gapless daily RP intervals + rp_trigger_windows.
+v2.3:  complete prana_timeline, RP matching v2, fine-dasha continuity.
+v2.4:  RP rejection reason codes, per-day funnels, house-set relation
+       diagnostics, topic-map validation vs EVENT_HOUSES/kp_rules,
+       Prana⊂Sukshma containment checks. Matching thresholds unchanged.
+v2.5:  Coverage-semantics docs in criteria, activation-scope counts,
+       nested-topic diffs (children vs relationship), representative
+       rejected intervals for GATE_ONLY audit. Matching thresholds unchanged.
+v2.6:  Reproducibility metadata block; interpretation usage notes
+       (static vs timed RP, capped windows, post-promotion framing).
+       Matching thresholds unchanged (still rp_convergence_v2).
 """
 from __future__ import annotations
 
@@ -38,7 +43,11 @@ from analysis.reference_exports import longterm_transits_filename
 from analysis.significator_strength import (
     KP_METHODOLOGY, build_natal_significator_block, natal_significators, significators_are_current,
 )
-from analysis.fine_windows import fine_dasha_windows, lord_house_links
+from analysis.fine_windows import (
+    fine_dasha_windows, lord_house_links, prana_parent_containment_issues,
+    timeline_continuity_issues,
+)
+from analysis.reference_exports import build_kp_rules
 from analysis.kp_constants import (
     GULIKA_SLOTS, RAHU_SLOTS, SIGN_LORDS, YAMA_SLOTS,
     astro_weekday, jd_to_utc_datetime, localize, nak_star_sub, sign_of, utc_now_iso,
@@ -50,8 +59,8 @@ from analysis.rp_windows import (
 from analysis.transits import TRANSIT_HOUSE_BASIS, transit_snapshot
 from schemas.event_houses import EVENT_HOUSES
 
-SCHEMA_VERSION = "2.2"
-CALC_ENGINE_VERSION = "AstroGen-KP-v2.2"
+SCHEMA_VERSION = "2.6"
+CALC_ENGINE_VERSION = "AstroGen-KP-v2.6"
 
 
 def _jd_to_iso(jd: float, tz: pytz.BaseTzInfo) -> str:
@@ -299,27 +308,35 @@ def build_90day_pack(
     significators_block, strength_map = natal_significators(natal_ref)
     rp_triggers = build_rp_trigger_windows(days_list, strength_map)
 
-    # Per-day dasha is sampled at the reference time, so a Sukshma shorter than
-    # a day could fall between two samples. The full sequence makes every
-    # transition in the coverage window visible.
-    last_day = start_date + timedelta(days=num_days)
+    # Per-day dasha is sampled at the reference time, so a short Sukshma/Prana
+    # can fall between samples. Full timelines make every transition visible.
+    cov_start = datetime(start_date.year, start_date.month, start_date.day)
+    cov_end = datetime(
+        (start_date + timedelta(days=num_days)).year,
+        (start_date + timedelta(days=num_days)).month,
+        (start_date + timedelta(days=num_days)).day,
+    )
     sukshma_timeline = fine_dasha_windows(
-        natal_ref,
-        datetime(start_date.year, start_date.month, start_date.day),
-        datetime(last_day.year, last_day.month, last_day.day),
-        significators_block,
-        "sukshma",
+        natal_ref, cov_start, cov_end, significators_block, "sukshma",
+    )
+    prana_timeline = fine_dasha_windows(
+        natal_ref, cov_start, cov_end, significators_block, "prana",
     )
 
     validation = _validate(
         days_list, natal_ref, prediction_lat, prediction_lng, num_days, reference_time,
         rp_triggers, prediction_tz,
+        sukshma_timeline=sukshma_timeline,
+        prana_timeline=prana_timeline,
+        coverage_start=cov_start,
+        coverage_end=cov_end,
     )
 
+    generated_at = utc_now_iso()
     return {
         "schema_version": SCHEMA_VERSION,
         "calculation_engine": CALC_ENGINE_VERSION,
-        "generated_at": utc_now_iso(),
+        "generated_at": generated_at,
         "valid_from": start_date.isoformat(),
         "valid_to": (start_date + timedelta(days=num_days - 1)).isoformat(),
         "num_days": num_days,
@@ -344,17 +361,61 @@ def build_90day_pack(
                 "contains the local time, then combine with ruling_planets.day_lord."
             ),
             "monthly_query": (
-                "Aggregate every day of the requested month: dasha transitions, "
-                "rp_trigger_windows.topics[topic].days rows and listed windows. Do not "
-                "generalise from a single day's snapshot."
+                "Aggregate every day of the requested month from "
+                "rp_trigger_windows.topics[topic].days (windows_total, active_minutes, "
+                "strong_*). windows[] is a capped listing of best moments only — never "
+                "treat the listed six as every qualifying window. Do not generalise from "
+                "a single day's snapshot."
+            ),
+            "fine_dasha": (
+                "Use sukshma_timeline and prana_timeline for MD→AD→PD→Sukshma→Prana "
+                "transitions with second-precision local timestamps. days[].dasha samples "
+                "only the reference time."
             ),
             "evidence_order": (
-                "Natal promise (cuspal sublord) → dasha permission → RP activation → "
-                "transit trigger. RP convergence alone is never a verdict."
+                "1) Locked natal promise (CSL) → 2) L1–L4 significators → "
+                "3) Locked MD→AD→PD→Sukshma→Prana → 4) Valid RP interval if available → "
+                "5) Transit trigger → 6) Realistic manifestation → 7) Vedic/numerology cross-check. "
+                "Never jump from an RP window or transit alone to a major event. "
+                "Dasha permission without RP windows = Timing support absent (not denial)."
             ),
+            "static_vs_timed_rp": (
+                "Static RP–house overlap (PDF section A / rp_event_match) ≠ "
+                "time-specific RP activation (rp_trigger_windows). "
+                "Do not call a topic time-supported from static overlap alone."
+            ),
+            "interpretation_labels": [
+                "Supported",
+                "Possible",
+                "Insufficient evidence",
+                "Timing support absent",
+            ],
             "out_of_range": (
                 "Dates outside valid_from..valid_to have no stored RP or panchanga here. "
                 "Say so explicitly; never invent RP windows or planetary positions."
+            ),
+        },
+        "reproducibility": {
+            "schema_version": SCHEMA_VERSION,
+            "calculation_engine": CALC_ENGINE_VERSION,
+            "significator_methodology_version": KP_METHODOLOGY["version"],
+            "rp_criteria_id": "rp_convergence_v2",
+            "rp_diagnostics_schema": "1.1",
+            "rp_matching_thresholds_unchanged_since": "2.3",
+            "locked_dasha_source": (
+                "natal_ref.dasha.locked_periods via analysis.vimshottari.resolve_dasha"
+            ),
+            "prediction_location": {
+                "city": prediction_city,
+                "lat": prediction_lat,
+                "lng": prediction_lng,
+                "timezone": prediction_tz,
+            },
+            "generated_at": generated_at,
+            "note": (
+                "Do not mix packages aligned to different natal birth dates "
+                "(e.g. 1990 vs 1989). Fingerprint alignment does not verify "
+                "factual birth details."
             ),
         },
         "natal_reference_file": natal_ref_file,
@@ -396,10 +457,19 @@ def build_90day_pack(
         "sukshma_timeline": {
             "note": (
                 "Every Sukshma window overlapping the coverage period, in order, beneath "
-                "the locked MD/AD/PD. Use this to name dasha transitions in a date range; "
-                "days[].dasha samples only the reference time and can step over a short one."
+                "the locked MD/AD/PD. Clipped to coverage; consecutive rows abut. "
+                "days[].dasha samples only the reference time."
             ),
             "windows": sukshma_timeline,
+        },
+        "prana_timeline": {
+            "note": (
+                "Every Prana window overlapping the coverage period, in order, beneath "
+                "the locked MD/AD/PD and its Sukshma parent. Each row carries md/ad/pd/"
+                "sukshma/lord (prana), signified_houses and topics. Clipped to coverage; "
+                "consecutive rows abut with second-precision local timestamps."
+            ),
+            "windows": prana_timeline,
         },
         "rp_trigger_windows": rp_triggers,
         "validation": validation,
@@ -475,8 +545,54 @@ def _validate_rp(days_list: list[dict], reference_time: str, tz_name: str) -> tu
     return issues, stats
 
 
+def _validate_topic_house_maps(rp_triggers: dict) -> tuple[list[str], list[str]]:
+    """
+    Structural issues vs soft warnings for topic → house mapping.
+    Authoritative map: schemas.event_houses.EVENT_HOUSES (same source as kp_rules.json).
+    """
+    issues: list[str] = []
+    warnings: list[str] = []
+    topics = (rp_triggers or {}).get("topics", {})
+    rules = build_kp_rules()
+    rules_map = {t: list(h) for t, h in rules["event_house_map"].items()}
+
+    if set(rules_map) != set(EVENT_HOUSES):
+        issues.append(
+            f"kp_rules topics {sorted(set(rules_map) ^ set(EVENT_HOUSES))} "
+            "disagree with EVENT_HOUSES"
+        )
+    for topic, houses in EVENT_HOUSES.items():
+        if rules_map.get(topic) != list(houses):
+            issues.append(
+                f"{topic}: kp_rules houses {rules_map.get(topic)} != EVENT_HOUSES {list(houses)}"
+            )
+        block = topics.get(topic)
+        if not block:
+            issues.append(f"{topic}: missing from rp_trigger_windows")
+            continue
+        if list(block.get("houses", [])) != list(houses):
+            issues.append(
+                f"{topic}: rp_trigger houses {block.get('houses')} != EVENT_HOUSES {list(houses)}"
+            )
+        # Duplicate house entries inside a topic
+        if len(houses) != len(set(houses)):
+            issues.append(f"{topic}: duplicated houses in mapping {houses}")
+
+    # Identical house sets are allowed but must be surfaced
+    by_set: dict[tuple, list[str]] = {}
+    for topic, houses in EVENT_HOUSES.items():
+        by_set.setdefault(tuple(houses), []).append(topic)
+    for houses, names in by_set.items():
+        if len(names) > 1:
+            warnings.append(
+                f"Topics {names} share identical primary houses {list(houses)}; "
+                "identical RP activation is expected when significators and dasha gates match."
+            )
+    return issues, warnings
+
+
 def _validate_triggers(rp_triggers: dict, days_list: list[dict]) -> tuple[list[str], dict]:
-    """Trigger windows: topic coverage, valid significators, in-range dates."""
+    """Trigger windows: topic coverage, valid significators, in-range dates, listed≤total."""
     issues: list[str] = []
     topics = (rp_triggers or {}).get("topics", {})
     pack_dates = {d["date"] for d in days_list}
@@ -485,13 +601,30 @@ def _validate_triggers(rp_triggers: dict, days_list: list[dict]) -> tuple[list[s
     if missing:
         issues.append(f"kp_rules topics with no trigger section: {missing}")
 
+    map_issues, _ = _validate_topic_house_maps(rp_triggers or {})
+    issues.extend(map_issues)
+
     per_topic: dict[str, int] = {}
     for topic, block in topics.items():
         sigs = set(block.get("significators", {}).get("l1_l2", []))
         rows = block.get("windows", [])
+        summary = block.get("summary", {})
         per_topic[topic] = len(rows)
         if len(block.get("days", [])) != len(days_list):
             issues.append(f"{topic}: {len(block.get('days', []))} day rows for {len(days_list)} days")
+        # Cap must not inflate totals
+        if summary.get("windows_listed", 0) > summary.get("windows_total", 0):
+            issues.append(
+                f"{topic}: windows_listed {summary.get('windows_listed')} > "
+                f"windows_total {summary.get('windows_total')}"
+            )
+        for detail in (block.get("diagnostics") or {}).get("days_detail") or []:
+            if detail.get("windows_listed", 0) > detail.get("windows_total", 0):
+                issues.append(f"{topic} {detail.get('date')}: listed > total")
+                break
+            if detail.get("gate") in ("TRIGGER", "GATE_ONLY") and not detail.get("listed_is_subset", True):
+                issues.append(f"{topic} {detail.get('date')}: listed_is_subset is false")
+                break
         for row in rows:
             if row[0] not in pack_dates:
                 issues.append(f"{topic}: trigger window on {row[0]} is outside the pack coverage")
@@ -506,6 +639,163 @@ def _validate_triggers(rp_triggers: dict, days_list: list[dict]) -> tuple[list[s
     return issues, per_topic
 
 
+def _validate_timelines(
+    sukshma: list[dict],
+    prana: list[dict],
+    coverage_start: datetime,
+    coverage_end: datetime,
+    days_list: list[dict],
+) -> list[str]:
+    issues: list[str] = []
+    issues.extend(timeline_continuity_issues(sukshma, coverage_start, coverage_end, "sukshma_timeline"))
+    issues.extend(timeline_continuity_issues(prana, coverage_start, coverage_end, "prana_timeline"))
+    issues.extend(prana_parent_containment_issues(prana, sukshma))
+
+    # Chronological order
+    for label, windows in (("sukshma", sukshma), ("prana", prana)):
+        for prev, nxt in zip(windows, windows[1:]):
+            if prev["start"] > nxt["start"]:
+                issues.append(f"{label}: out of order at {prev['start']} → {nxt['start']}")
+                break
+
+    sk_lords = {w["lord"] for w in sukshma}
+    pr_lords = {w["lord"] for w in prana}
+    for d in days_list:
+        sk = (d.get("dasha") or {}).get("sukshma") or {}
+        pr = (d.get("dasha") or {}).get("prana") or {}
+        if sk.get("lord") and sk["lord"] not in sk_lords:
+            issues.append(f"{d['date']}: daily sukshma {sk['lord']} missing from sukshma_timeline")
+        if pr.get("lord") and pr["lord"] not in pr_lords:
+            issues.append(f"{d['date']}: daily prana {pr['lord']} missing from prana_timeline")
+        if len(issues) >= 10:
+            break
+    return issues
+
+
+def _semantic_warnings(rp_triggers: dict, num_days: int) -> list[str]:
+    """
+    Soft astrology-semantic flags — never fail structural validation.
+    A structural PASS does not imply every RP topic behaviour is ideal.
+    """
+    warnings: list[str] = []
+    topics = (rp_triggers or {}).get("topics", {})
+    full_day_minutes = num_days * 1440
+    activation_signatures: dict[tuple, list[str]] = {}
+
+    _, map_warnings = _validate_topic_house_maps(rp_triggers or {})
+    warnings.extend(map_warnings)
+
+    for topic, block in topics.items():
+        summary = block.get("summary", {})
+        diag = block.get("diagnostics", {})
+        gate = summary.get("days_passing_gate", 0)
+        active = summary.get("active_minutes", 0)
+        strong = summary.get("strong_windows", 0)
+        l12 = diag.get("l1_l2_count", len(block.get("significators", {}).get("l1_l2", [])))
+        rel = diag.get("house_set_relations") or {}
+
+        if num_days >= 7 and gate == num_days and active >= full_day_minutes * 0.95:
+            warnings.append(
+                f"{topic}: RP gate passes all {num_days} days with near-continuous "
+                f"activation ({active} active minutes). Review selectivity."
+            )
+        if l12 >= 8:
+            warnings.append(
+                f"{topic}: L1-L2 significator set has {l12}/9 planets — multi-house "
+                "OR-matching makes activation broad; house-coverage + L1 deciding-sub "
+                "filters constrain it. See diagnostics.rejection_reason_totals."
+            )
+        if (summary.get("days_with_dasha_permission", 0) > 0
+                and summary.get("windows_total", 0) == 0):
+            warnings.append(
+                f"{topic}: dasha permission exists but zero RP windows "
+                f"({diag.get('dasha_without_rp_note') or 'see diagnostics'})."
+            )
+        if gate > 0 and strong == 0 and summary.get("windows_total", 0) > 0:
+            warnings.append(f"{topic}: {summary.get('windows_total')} ACTIVE windows but zero STRONG.")
+
+        if summary.get("windows_listed", 0) > summary.get("windows_total", 0):
+            warnings.append(f"{topic}: listed windows exceed total — totals/cap inconsistency.")
+
+        sig = (
+            summary.get("days_passing_gate"),
+            summary.get("windows_total"),
+            summary.get("active_minutes"),
+            summary.get("strong_windows"),
+        )
+        activation_signatures.setdefault(sig, []).append(topic)
+
+        # Same activation as an identical-house peer is expected; note once per pair.
+        for peer in rel.get("identical_house_set_with") or []:
+            if topic > peer:
+                continue
+            peer_sum = (topics.get(peer) or {}).get("summary") or {}
+            peer_sig = (
+                peer_sum.get("days_passing_gate"),
+                peer_sum.get("windows_total"),
+                peer_sum.get("active_minutes"),
+                peer_sum.get("strong_windows"),
+            )
+            if peer_sig == sig and sig[1]:
+                warnings.append(
+                    f"{topic} and {peer} have identical RP activation and share "
+                    f"primary houses {rel.get('houses')}. Expected — not a cache bug."
+                )
+
+    for sig, names in activation_signatures.items():
+        if len(names) < 2 or not (sig[0] and sig[1]):
+            continue
+        # Skip pairs already explained by identical house sets
+        unexplained = []
+        for n in names:
+            peers = set(
+                ((topics.get(n) or {}).get("diagnostics") or {})
+                .get("house_set_relations", {})
+                .get("identical_house_set_with") or []
+            )
+            if not peers.intersection(names):
+                unexplained.append(n)
+        if len(unexplained) >= 2:
+            warnings.append(
+                f"Identical RP activation across topics with different house sets "
+                f"{unexplained}: {sig}. Check subset relations / shared significators "
+                "(see house_set_relations). Not an automatic failure."
+            )
+
+    # Nested half-coverage limitation (career ⊂ promotion/wealth, children ⊂ relationship)
+    audit = (rp_triggers or {}).get("cross_topic_audit") or {}
+    cpw = audit.get("career_promotion_wealth") or {}
+    if cpw.get("promotion_equals_wealth"):
+        warnings.append(
+            "promotion ≡ wealth under EVENT_HOUSES [2,6,10,11]: identical RP totals "
+            "are correct. Half-coverage cannot separate them (see criteria.methodology_limitations)."
+        )
+    c_sum, p_sum = cpw.get("career_summary") or {}, cpw.get("promotion_summary") or {}
+    if c_sum and p_sum and c_sum.get("windows_total") and p_sum.get("windows_total"):
+        if abs(int(c_sum["windows_total"]) - int(p_sum["windows_total"])) <= max(
+            5, int(0.01 * max(c_sum["windows_total"], p_sum["windows_total"]))
+        ):
+            warnings.append(
+                "career and promotion/wealth activations are nearly identical under "
+                "half-house coverage (ceil(n/2)): matched cores like [6,11] meet need=2 "
+                "for both career (3 houses) and promotion (4 houses). Selectivity limit "
+                "documented in criteria.coverage_semantics — thresholds unchanged."
+            )
+    cvr = audit.get("children_vs_relationship")
+    if cvr and cvr.get("subset_only_count"):
+        sample = (cvr.get("subset_only_samples") or [None])[0]
+        warnings.append(
+            f"children has {cvr['subset_only_count']} RP moment(s) that relationship "
+            f"does not (need 1 of [5,11] vs need 2 of [5,7,11]). "
+            f"See cross_topic_audit.children_vs_relationship"
+            + (f"; first exclusive: {sample.get('date')} {sample.get('start')}–"
+               f"{sample.get('end')} houses {sample.get('matched_houses')}"
+               if sample else "")
+            + "."
+        )
+    return warnings
+
+
 def _validate(
     days_list: list[dict],
     natal_ref: dict,
@@ -515,6 +805,10 @@ def _validate(
     reference_time: str,
     rp_triggers: Optional[dict] = None,
     tz_name: str = "",
+    sukshma_timeline: Optional[list] = None,
+    prana_timeline: Optional[list] = None,
+    coverage_start: Optional[datetime] = None,
+    coverage_end: Optional[datetime] = None,
 ) -> dict:
 
     schema_issues: list[str] = []
@@ -665,6 +959,13 @@ def _validate(
     rp_issues, rp_stats = _validate_rp(days_list, reference_time, tz_name)
     trigger_issues, trigger_counts = _validate_triggers(rp_triggers or {}, days_list)
 
+    timeline_issues: list[str] = []
+    if coverage_start is not None and coverage_end is not None:
+        timeline_issues = _validate_timelines(
+            sukshma_timeline or [], prana_timeline or [],
+            coverage_start, coverage_end, days_list,
+        )
+
     dst_days = [d["date"] for d in days_list
                 if (d.get("ruling_planets", {}).get("coverage", {})
                      .get("local_day_minutes", 1440)) != 1440]
@@ -675,10 +976,12 @@ def _validate(
             "the interval order is authoritative."
         )
 
+    warnings.extend(_semantic_warnings(rp_triggers or {}, len(days_list)))
+
     all_issues = (
         schema_issues + internal_issues + natal_issues + occupancy_issues +
         semantic_issues + panch_issues + kalam_issues + hora_issues + dasha_issues +
-        rp_issues + trigger_issues
+        rp_issues + trigger_issues + timeline_issues
     )
 
     layers = {
@@ -693,6 +996,7 @@ def _validate(
         "dasha_lock": _status(not dasha_issues),
         "ruling_planets": _status(not rp_issues),
         "rp_trigger_windows": _status(not trigger_issues),
+        "fine_dasha_timelines": _status(not timeline_issues),
     }
     overall_pass = all(v == "PASS" for v in layers.values())
 
@@ -701,6 +1005,23 @@ def _validate(
         "trust_status": layers,
         "issues": all_issues,
         "warnings": warnings,
+        "validation_categories": {
+            "structural": _status(not (
+                schema_issues + internal_issues + natal_issues + occupancy_issues +
+                panch_issues + kalam_issues + hora_issues + dasha_issues + rp_issues
+            )),
+            "internal_consistency": _status(not (
+                semantic_issues + trigger_issues + timeline_issues
+            )),
+            "astrology_semantic": (
+                "WARNINGS" if warnings else "CLEAR"
+            ),
+            "note": (
+                "Structural PASS does not imply every RP topic signature is ideal. "
+                "Read warnings for identical activations, broad L1-L2 sets, and "
+                "dasha-permission-without-RP-windows."
+            ),
+        },
         "summary": "All checks passed" if overall_pass
                    else f"{len(all_issues)} issue(s): " + "; ".join(all_issues[:5]),
         "passed": overall_pass,
@@ -711,7 +1032,11 @@ def _validate(
             "reference_timezone": tz_name,
             "reference_time": reference_time,
             **rp_stats,
-            "trigger_windows_per_topic": trigger_counts,
-            "trigger_windows_total": sum(trigger_counts.values()),
+            "trigger_windows_per_topic_listed": trigger_counts,
+            "trigger_windows_listed_total": sum(trigger_counts.values()),
+            "sukshma_windows": len(sukshma_timeline or []),
+            "prana_windows": len(prana_timeline or []),
+            "rp_criteria": (rp_triggers or {}).get("criteria", {}).get("id"),
+            "diagnostics_schema": (rp_triggers or {}).get("criteria", {}).get("diagnostics_schema"),
         },
     }

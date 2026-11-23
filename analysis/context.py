@@ -261,6 +261,9 @@ def build_prediction_context(
     elif query_mode == "LONG_TERM" and not topics_to_analyse:
         topics_to_analyse = list(EVENT_HOUSES.keys())
 
+    from schemas.client_facts import resolve_client_facts
+
+    client_facts = resolve_client_facts(natal_ref)
     pd_list = compute_all_topics(
         natal_planets,
         natal_ref.get("houses", {}),
@@ -271,6 +274,7 @@ def build_prediction_context(
         dasha_state.get("pd_lord", ""),
         topics=topics_to_analyse or [],
         significators=significators,
+        confirmed_milestones=list(client_facts.get("confirmed_milestones") or []),
     )
 
     # ── Event evidence trail ─────────────────────────────────────
@@ -328,10 +332,24 @@ def build_prediction_context(
             ],
             "ruling_planets":    rp.get("rp_list", []),
             "rp_event_overlap":  rp_rows,
+            "rp_evidence_layers": {
+                "static_rp_house_alignment": topic_rp.get("rp_support", "Weak"),
+                "static_note": (
+                    "Natal RP–house overlap at the reference snapshot only — "
+                    "not time-specific window activation."
+                ),
+                "time_specific_rp_activation": (
+                    "See pack rp_trigger_windows / prediction_context.rp_trigger_summary"
+                ),
+            },
             "transit_triggers":  transit_triggers,
             "score":             pct10,
             "manifestations":    entry.get("manifestations", []),
+            "manifestation_mode": entry.get("manifestation_mode", "standard"),
             "confidence":        confidence,
+            "interpretation_labels_allowed": [
+                "Supported", "Possible", "Insufficient evidence", "Timing support absent",
+            ],
         })
 
     # ── Long-term transits (LONG_TERM / EVENT_SPECIFIC only) ──────
@@ -436,4 +454,5 @@ def build_prediction_context(
         "long_term_transits":   lt_transits,
         "event_analyses":       pd_list,
         "event_evidence":       event_evidence,
+        "client_facts":         client_facts,
     }

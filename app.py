@@ -2868,7 +2868,16 @@ with st.form("birth_form", clear_on_submit=False):
         dob_str = st.text_input("Date of Birth (DD/MM/YYYY)", value="", placeholder="e.g., 01/01/1900",
                                 help="Enter birth date in DD/MM/YYYY")
         place = st.text_input("Place of Birth", value="", placeholder="Mumbai, India",
-                              help="City, Country (for geocoding)")
+                              help="City, Country (for natal chart geocoding)")
+        pred_location = st.text_input(
+            "Current city (prediction location)",
+            value=st.session_state.get("prediction_location", ""),
+            placeholder="e.g. Hyderabad, India",
+            help=(
+                "Where you are now — used for the Report PDF, Ruling Planets, "
+                "Hora, Kalam and the AI pack. Birth place is never used as a silent default."
+            ),
+        )
         with st.expander("Advanced (optional): manual coordinates", expanded=False):
             st.caption("If place lookup fails, enter coordinates manually (India only).")
             lat_str = st.text_input("Latitude", value="", placeholder="e.g., 19.0760")
@@ -2881,9 +2890,10 @@ with st.form("birth_form", clear_on_submit=False):
         am_pm = tcols[2].radio("Meridian", ["AM", "PM"], horizontal=True, label_visibility="collapsed")
         st.write("")  # spacer
         gender = st.selectbox("Gender", ["Male","Female","Other"], label_visibility="visible")
-        include_individual_ai_summary = st.toggle("Include AI summary in PDF (uses OpenAI)", value=False)
+    submitted = st.form_submit_button("Generate Complete KP Chart ✨")
 
-    submitted = st.form_submit_button("Generate Complete KP Chart ✨")        
+if submitted:
+    st.session_state["prediction_location"] = (pred_location or "").strip()
 
 render_org_analysis_section()
 
@@ -2938,6 +2948,14 @@ except:
 hour_24 = h if (am_pm == "AM" and h != 12) else (0 if (am_pm == "AM" and h == 12) else (h if h == 12 else h + 12))
 tob = datetime.strptime(f"{hour_24:02d}:{m:02d}", "%H:%M").time()
 
+pred_loc = (st.session_state.get("prediction_location") or "").strip()
+if not pred_loc:
+    st.error(
+        "Enter **Current city (prediction location)** — where you are now. "
+        "Birth place is only for the natal chart; current city is required for the Report PDF."
+    )
+    st.stop()
+
 # Calculate chart
 with st.spinner("Calculating comprehensive KP chart..."):
     chart_result, error = calculate_comprehensive_chart(dob, tob, place)
@@ -2964,7 +2982,6 @@ with st.spinner("Calculating comprehensive KP chart..."):
     'lng': lng_val,
     'gender': gender,
     'name': name_input.strip() if 'name_input' in locals() else "",
-    'include_ai_summary': include_individual_ai_summary,
     }
 
 
@@ -2980,23 +2997,7 @@ else:
     numerology["name_number"] = None
 numerology["life_path"] = numerology_life_path(dob)
 
-# ── PDF at the TOP so users can download without scrolling ──────
-birth_details_for_pdf = st.session_state.get("birth_details") or {}
-pdf_buffer = generate_pdf_report(
-    {'dob': dob, 'tob': tob, 'place': place, 'gender': gender,
-     'tob_display': f"{hour_12}:{minute} {am_pm}"},
-    chart_result,
-    name=name_val,
-    numerology=numerology,
-    include_ai_summary=bool(birth_details_for_pdf.get("include_ai_summary", False))
-)
-st.download_button(
-    "📥 Download PDF Report",
-    data=pdf_buffer.getvalue(),
-    file_name=f"KP_Chart_{dob}_{uuid.uuid4().hex[:6]}.pdf",
-    mime="application/pdf"
-)
-# additive: enhanced KP report section (significators, promise/denial, almanac, long-term transits)
+# One Report PDF (auto-built from prediction location on the birth form) + separate AI pack
 try:
     render_enhanced_report_section(
         chart_result,
@@ -3005,9 +3006,10 @@ try:
         tob=tob,
         place=place,
         numerology=numerology,
+        prediction_location=st.session_state.get("prediction_location", ""),
     )
 except Exception as _enh_err:
-    st.warning(f"Enhanced KP Report section unavailable: {_enh_err}")
+    st.warning(f"KP Report section unavailable: {_enh_err}")
 st.markdown("---")
 
 # Common CSS for both tables

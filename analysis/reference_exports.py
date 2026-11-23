@@ -17,7 +17,33 @@ from schemas.event_houses import EVENT_HOUSES, TOPIC_LABELS
 
 RULES_SCHEMA_VERSION = "1.0"
 RULES_VERSION = "2026.11"
-TRANSITS_SCHEMA_VERSION = "1.0"
+TRANSITS_SCHEMA_VERSION = "1.1"
+
+TRANSIT_FIELD_DEFINITIONS = {
+    "planet": "Slow planet that changed sidereal sign (Jupiter, Saturn, Rahu, Ketu).",
+    "ingress_date": "Civil date (UTC noon search refined) of the sign change.",
+    "ingress_datetime_utc": "Exact UT ISO timestamp of the sign crossing.",
+    "from_sign": "Sidereal sign left.",
+    "to_sign": "Sidereal sign entered (Lahiri).",
+    "transit_house": (
+        "Natal Placidus cusp-interval house that contains the ingress longitude "
+        "(same basis as natal occupancy). NOT whole-sign."
+    ),
+    "transit_house_sign": (
+        "Whole-sign house count from the natal Lagna sign — reference only."
+    ),
+    "nakshatra": "Sidereal nakshatra of the planet at ingress.",
+    "star_lord": "Nakshatra lord at ingress.",
+    "sub_lord": "KP sub lord at ingress.",
+    "same_sign_natal_planets": (
+        "Natal planets whose natal sidereal SIGN equals to_sign. "
+        "This is NOT a degree-orb conjunction; angular separation is not computed. "
+        "Do not treat these as close conjunctions."
+    ),
+    "conjunction_orb_degrees": (
+        "Not computed in this file. No degree-based conjunction orb is applied."
+    ),
+}
 
 
 def build_kp_rules() -> dict:
@@ -90,9 +116,11 @@ def build_longterm_transits(
         "cache_key": longterm_transits_filename(from_date, horizon_years),
         "natal_reference_file": natal_reference_filename(natal_ref),
         "transit_house_basis": TRANSIT_HOUSE_BASIS,
+        "field_definitions": TRANSIT_FIELD_DEFINITIONS,
         "notes": (
             "Raw slow-planet sign-change ingress data only. "
-            "Topic relevance is determined by the AI layer using kp_rules.json."
+            "Topic relevance is determined by the AI layer using kp_rules.json. "
+            "same_sign_natal_planets means shared sidereal sign — not a close conjunction."
         ),
         "transits": transits,
     }

@@ -243,7 +243,8 @@ def _scan_slow_ingresses(
                             "notes":                  "; ".join(notes_parts) if notes_parts else "",
                         })
                     else:
-                        entry["conjunct_natal_planets"] = _same_sign_natal_planets(
+                        # Same sidereal sign only — NOT a degree-orb conjunction.
+                        entry["same_sign_natal_planets"] = _same_sign_natal_planets(
                             SIGNS[sign_idx], natal_planets,
                         )
 

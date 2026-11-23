@@ -1,6 +1,6 @@
 # Static Pack Prediction — generate once, predict from files
 
-Pack schema **2.2** · engine `AstroGen-KP-v2.2`
+Pack schema **2.6** · engine `AstroGen-KP-v2.6`
 
 The astrology app is a **one-time calculation source**. You generate the AI
 Calculation Pack for a coverage period, upload the files to your AI project,
@@ -9,7 +9,14 @@ visit, no API, no chart regeneration, no natal rebuild.
 
 ---
 
-## The four files
+## Human PDF vs AI pack
+
+The app produces **one** Calculation & Evidence PDF for the human reader
+(natal tables + KP evidence; no AI narrative). The AI Calculation Pack is a
+**separate** ZIP download. You do not need the PDF to run predictions from
+the pack, and you do not need the pack to read the PDF.
+
+## The four pack files
 
 | File | Role | Regenerate |
 |---|---|---|
@@ -41,20 +48,20 @@ can represent it.
 | Path | Contents |
 |---|---|
 | `days[].ruling_planets` | Day lord, gapless ascendant and Moon sign/star/sub intervals for the whole local day, and a seven-part snapshot at the reference time |
-| `rp_trigger_windows` | Per-topic activation windows and per-day counts for all 16 `kp_rules.json` topics |
-| `sukshma_timeline` | Every Sukshma window overlapping the coverage period, in order |
-| `usage` | Machine-readable rules for date selection, exact-time lookup, aggregation and out-of-range disclosure |
-| `validation.trust_status.ruling_planets` | RP presence, timezone, gapless coverage, interval-count sanity |
-| `validation.trust_status.rp_trigger_windows` | Topic coverage, significator validity, in-range dates |
-| `validation.rp_summary` | Day count, interval counts, windows per topic, coverage, reference timezone |
+| `rp_trigger_windows` | Per-topic activation (`rp_convergence_v2`); `days[]` totals vs capped `windows[]` |
+| `sukshma_timeline` / `prana_timeline` | Gapless fine-dasha coverage with parent chain, second precision |
+| `usage` | Date selection, exact-time lookup, aggregation, fine-dasha and out-of-range rules |
+| `validation.trust_status.*` | Includes `ruling_planets`, `rp_trigger_windows`, `fine_dasha_timelines` |
+| `validation.warnings` | Soft semantic flags (all-day activation, broad L1–L2, dasha-without-RP, …) |
+| `validation.rp_summary` | Interval counts, listed windows, sukshma/prana counts, criteria id |
 
 ### Unchanged
 
 Daily panchanga, sunrise/sunset, Rahu Kalam, Yamaganda, Gulika, the 24 horas,
-tarabala, numerology, MD/AD/PD/Sukshma/Prana, transits, natal fingerprint,
+tarabala, numerology, MD/AD/PD samples, transits, natal fingerprint,
 natal lock metadata, ayanamsa, prediction location and companion-file
-references all keep their existing field names and values. 2.2 extends the
-daily record; it does not restructure it.
+references keep their existing field names. RP matching criteria tightened in
+2.3; natal significators and house maps were not altered.
 
 ---
 
@@ -106,12 +113,12 @@ Use `reference_snapshot` **only** when the question names no time.
   window counts and total minutes for that day
 - `windows[]` — the best moments of each qualifying day
 
-### Criterion
+### Criterion (`rp_convergence_v2` — thresholds unchanged in 2.5)
 
 | Stage | Rule |
 |---|---|
-| Day gate | Day lord signifies at L1–L2 **and** at least one locked MD/AD/PD lord signifies at L1–L3 |
-| Window | Ascendant sub lord, ascendant star lord and Moon sub lord all signify at L1–L2 |
+| Day gate | Day lord signifies at L1–L2 **and** at least one locked MD/AD/PD lord signifies at L1–L2 |
+| Window | Ascendant **sub** and Moon **sub** at **L1**; ascendant **star** at L1–L2; matched houses ≥ ceil(n/2) |
 | `STRONG` | Day lord, ascendant star lord, ascendant sub lord and Moon sub lord all signify at L1 |
 | `ACTIVE` | Window matched but not all four at L1 |
 
@@ -120,6 +127,11 @@ signify most houses through some planet, so it matches nearly every minute and
 carries no information. The filter uses classical KP strength instead — Level 1
 (in the star of an occupant) and Level 2 (occupant) are the fruit-giving
 significators.
+
+House-coverage semantics, nested-topic limits (career ⊂ promotion ≡ wealth;
+children ⊂ relationship), and rejected-interval samples are documented in
+[`rp_coverage_semantics.md`](rp_coverage_semantics.md) and embedded under
+`rp_trigger_windows.criteria.coverage_semantics` / `cross_topic_audit`.
 
 ### Listing and totals
 
@@ -189,5 +201,5 @@ From the app's Enhanced Report section 4, set the start date and prediction
 location, generate, and download the ZIP. Build time is about 7 seconds for 90
 days. The pack extracts to roughly 3.4 MB, about half of it RP interval data;
 it is written without indentation for that reason, while the natal, rules and
-transit files stay human-readable. Regenerate every 60–75 days so the coverage
-always runs ahead of the questions you ask.
+transit files stay human-readable. Generate a new pack before `valid_to` so
+questions stay inside the coverage window.

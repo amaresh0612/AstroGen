@@ -63,18 +63,22 @@ These are always separate fields. The UI enforces this with a hard block.
 
 ## PDF role
 
+There is **one** Report PDF (unified) and a **separate** AI Calculation Pack ZIP.
+
 The PDF is a **Calculation & Evidence Report** — not a prediction narrative.
+No AI summary is embedded in the PDF.
 
 It contains:
-- Natal reference lock (birth, cusps, CSLs, significators, dasha)
-- Prediction location confirmation
-- Ruling Planets
-- KP Activation Score Card (score + KP verdict + dasha activation + manifestations)
-- KP Significator Strength table
+- Cover: birth metadata, prediction location, active MD→Sukshma, RP, current transits
+- Natal planet/cusp table, chart wheel (when session chart is available), full MD/AD timeline, PD detail, muhurtha
+- KP Significator Strength table + Activation Score Card
+- Sukshma evidence windows
 - Long-term transit windows (Jupiter/Saturn/Rahu/Ketu)
 - 90-day Panchanga & Kalam Reference
 
-The PDF must **not** contain statements like "Promotion is likely", "You will receive gains", or "Marriage is indicated". Those belong to the AI layer.
+Prediction location is required before the PDF (or pack) can be generated.
+
+The PDF must **not** contain statements like "Promotion is likely", "You will receive gains", or "Marriage is indicated". Those belong to the AI layer / pack workflow.
 
 ---
 
@@ -88,10 +92,17 @@ The PDF must **not** contain statements like "Promotion is likely", "You will re
 
 Never overwrite `natal_ref.json` dynamically. Never merge prediction data into it.
 
-### 90-day pack — schema 2.2
+### 90-day pack — schema 2.6
 
 The pack is generated **once per coverage period**; every question inside that
-period is answered from the file. See `docs/static_pack_prediction.md`.
+period is answered from the file. See `docs/static_pack_prediction.md`,
+`docs/rp_coverage_semantics.md`, `docs/CHANGELOG_pack.md` and `docs/transit_fields.md`.
+
+Schema 2.6 keeps `rp_convergence_v2` thresholds. Adds reproducibility metadata,
+static-vs-timed RP usage notes, and interpretation labels. PDF separates static
+RP–house alignment from timed `rp_trigger_windows`. Confirmed promotion uses
+post-promotion evidence themes (never “pending”). Zero RP windows ≠ denial.
+Capped `windows[]` must never be treated as complete totals.
 
 - `days[].ruling_planets` — day lord, gapless ascendant and Moon
   sign/star/sub intervals from local midnight to local midnight, and a
@@ -99,12 +110,14 @@ period is answered from the file. See `docs/static_pack_prediction.md`.
   wall-clock, half-open `[start, end)`, `24:00:00` = next local midnight.
   Resolve an exact-time RP query by locating the containing interval; use the
   reference snapshot only when the question names no time.
-- `rp_trigger_windows` — per-topic activation. `days[]` rows carry the full
-  counts and minutes (aggregate from these); `windows[]` lists at most 6 best
-  moments per topic per day (name specific moments from these). The criterion
-  is KP level-based, gated on dasha permission — see the doc.
-- `sukshma_timeline` — every Sukshma window overlapping the coverage period,
-  because `days[].dasha` samples only the reference time.
+- `rp_trigger_windows` — `rp_convergence_v2` matching (unchanged thresholds) plus
+  diagnostics schema 1.0: rejection reason codes, per-day funnels,
+  `house_set_relations` (identical / subset peers). Promotion and wealth share
+  houses `[2,6,10,11]` — identical activation is expected, not a cache bug.
+  Aggregate from `days[]` totals; `windows[]` is capped at 6/topic/day.
+  Zero RP windows with dasha permission ≠ denial of natal promise.
+- `sukshma_timeline` / `prana_timeline` — gapless fine-dasha coverage with
+  parent-child containment checks and second-precision timestamps.
 - Never reuse one day's RP for another date, and never treat `generated_at`
   as the prediction date.
 
@@ -153,7 +166,7 @@ Fixtures use a fictional subject only. Parity tests load `app.py` functions via 
 | `analysis/rp_triggers.py` | Per-topic RP activation windows, gated on dasha permission |
 | `analysis/pack_builder.py` | 90-day static pack (schema 2.2) + its validation layers |
 | `tests/` | pytest suite: app.py parity, golden chart, dasha lock, location rule, engines, KP significators |
-| `reports/` | PDF builders: enhanced_pdf, almanac_section, kp_packet_section |
+| `reports/` | PDF builders: unified_pdf (one report), enhanced_pdf, natal_chart_section, almanac, kp_packet |
 | `schemas/` | Typed dicts: natal_ref, event_houses, almanac_row, prediction_context |
 | `prompts/` | Versioned AI prompt packs |
 | `requirements.txt` | Runtime deps: streamlit, openai, swisseph, geopy, reportlab, pillow, etc. |

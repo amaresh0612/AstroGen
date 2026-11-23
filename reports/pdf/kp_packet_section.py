@@ -115,7 +115,7 @@ def build_kp_packet_section(
     ))
     story.append(Spacer(1, 0.10 * inch))
 
-    sc_headers = ["Topic", "H", "Score\n/10", "CSL Direct-House", "Dasha Permission", "Likely Manifestations"]
+    sc_headers = ["Topic", "H", "Score\n/10", "CSL Direct-House", "Dasha Permission", "Evidence themes"]
     sc_widths  = [0.85*inch, 0.50*inch, 0.48*inch, 1.35*inch, 1.40*inch, 2.67*inch]
     sc_data    = [[Paragraph(h, head_sty) for h in sc_headers]]
 
@@ -161,18 +161,21 @@ def build_kp_packet_section(
         else:
             dasha_str = entry.get("dasha_alignment", "")
 
-        # Manifestations (ranked list)
+        # Evidence themes (ranked) — not predictions; post-promotion mode when confirmed
         mfst = entry.get("manifestations", [])
         dark = entry.get("dark_houses", [])
+        mode = entry.get("manifestation_mode", "standard")
         mfst_text = ""
+        if mode == "post_promotion_assessment":
+            mfst_text = "[Post-promotion assessment — milestone confirmed]\n"
         if mfst:
             ranked = [m for m in mfst if not m.startswith("Note:")]
             caveat = [m for m in mfst if m.startswith("Note:")]
-            mfst_text = "\n".join(f"• {m}" for m in ranked[:3])
+            mfst_text += "\n".join(f"• {m}" for m in ranked[:3])
             if caveat:
                 mfst_text += f"\n⚠ {caveat[0]}"
         elif dark:
-            mfst_text = f"H{','.join(str(h) for h in dark)} uncovered — partial activation"
+            mfst_text += f"H{','.join(str(h) for h in dark)} uncovered — partial activation"
 
         # Score colour
         txt_col, bg_col = colors.HexColor("#333333"), colors.white

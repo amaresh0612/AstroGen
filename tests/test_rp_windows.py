@@ -211,17 +211,28 @@ def test_d_sukshma_timeline_exposes_every_transition(jan_pack):
     """Per-day dasha samples 09:00; the timeline must not skip a short Sukshma."""
     windows = jan_pack["sukshma_timeline"]["windows"]
     assert windows
-
-    assert windows[0]["start"] <= "2027-01-01"
-    assert windows[-1]["end"] >= "2027-01-31"
+    assert windows[0]["start"] == "2027-01-01T00:00:00"
+    assert windows[-1]["end"] == "2027-02-01T00:00:00"
     for prev, nxt in zip(windows, windows[1:]):
         assert prev["end"] == nxt["start"], f"gap at {prev['end']}"
         assert prev["lord"] != nxt["lord"]
 
     assert len({w["lord"] for w in windows}) > 1
-
-    # Every Sukshma the daily records show must appear in the timeline.
     daily = {d["dasha"]["sukshma"]["lord"] for d in jan_pack["days"]}
+    assert daily <= {w["lord"] for w in windows}
+
+
+def test_d_prana_timeline_is_complete_and_gapless(jan_pack):
+    windows = jan_pack["prana_timeline"]["windows"]
+    assert windows
+    assert windows[0]["start"] == "2027-01-01T00:00:00"
+    assert windows[-1]["end"] == "2027-02-01T00:00:00"
+    for prev, nxt in zip(windows, windows[1:]):
+        assert prev["end"] == nxt["start"], f"prana gap at {prev['end']}"
+    for w in windows:
+        assert w["md"] and w["ad"] and w["pd"] and w["sukshma"] and w["lord"]
+        assert "signified_houses" in w and "topics" in w
+    daily = {d["dasha"]["prana"]["lord"] for d in jan_pack["days"]}
     assert daily <= {w["lord"] for w in windows}
 
 
@@ -309,14 +320,30 @@ def test_trigger_windows_respect_dasha_permission(jan_pack):
         assert not ({row[0] for row in block["windows"]} & gated)
 
 
+def test_rp_criteria_is_v2_with_diagnostics(jan_pack):
+    tw = jan_pack["rp_trigger_windows"]
+    assert tw["criteria"]["id"] == "rp_convergence_v2"
+    assert tw["criteria"]["diagnostics_schema"] == "1.1"
+    for topic, block in tw["topics"].items():
+        assert "diagnostics" in block
+        assert "gate_reason" in tw["day_fields"]
+        assert len(block["days"][0]) == len(tw["day_fields"])
+        assert block["summary"]["windows_listed"] <= block["summary"]["windows_total"]
+        assert block["diagnostics"]["houses_evaluated"] == EVENT_HOUSES[topic]
+        assert "days_detail" in block["diagnostics"]
+
+
 def test_pack_validation_passes_with_rp_layers(jan_pack):
     val = jan_pack["validation"]
     assert val["trust_status"]["ruling_planets"] == "PASS"
     assert val["trust_status"]["rp_trigger_windows"] == "PASS"
+    assert val["trust_status"]["fine_dasha_timelines"] == "PASS"
     assert val["overall"] == "PASS", val["issues"][:5]
 
     summary = val["rp_summary"]
     assert summary["days_with_rp"] == 31
     assert summary["reference_timezone"] == "Asia/Kolkata"
     assert summary["ascendant_intervals"] > 31 * ASC_INTERVALS_PER_DAY_MIN
-    assert set(summary["trigger_windows_per_topic"]) == set(EVENT_HOUSES)
+    assert set(summary["trigger_windows_per_topic_listed"]) == set(EVENT_HOUSES)
+    assert summary["prana_windows"] > summary["sukshma_windows"] > 0
+    assert summary["rp_criteria"] == "rp_convergence_v2"

@@ -1,15 +1,12 @@
 """
-Enhanced Report UI section — additive Streamlit module.
-
-Single-page flow (multi-user safe, no hardcoded paths):
+KP Report UI — additive Streamlit module.
 
   1. Natal reference — session chart or uploaded JSON (locked source of truth)
-  2. Prediction location — shared by PDF and 90-day pack
-  3. Evidence PDF — calculation & evidence report (+ optional results JSON)
-  4. AI Calculation Pack — one ZIP: natal + 90-day pack + kp_rules + longterm transits
+  2. Prediction location — from birth-form current city (override optional)
+  3. Unified Report PDF — auto-built once; single download (no AI narrative)
+  4. AI Calculation Pack — separate ZIP: natal + 90-day pack + rules + longterm
 
-Call render_enhanced_report_section() from app.py after the existing
-PDF download button. Completely self-contained — touches nothing in app.py.
+Call render_enhanced_report_section() from app.py after the chart is computed.
 """
 from __future__ import annotations
 
@@ -234,10 +231,24 @@ def _build_pdf(
     query_lng: Optional[float] = None,
     query_tz: Optional[str] = None,
     query_city: Optional[str] = None,
+    chart_result: Optional[dict] = None,
+    confirmed_milestones: Optional[list] = None,
+    rp_trigger_windows: Optional[dict] = None,
 ) -> tuple[io.BytesIO, dict]:
-    """Run all engines and return (pdf_buffer, prediction_context)."""
+    """Run all engines and return (unified pdf_buffer, prediction_context)."""
     from analysis.context import build_prediction_context
-    from reports.enhanced_pdf import build_enhanced_pdf
+    from reports.pdf.rp_evidence_section import summarise_rp_triggers_for_pdf
+    from reports.unified_pdf import build_unified_pdf
+
+    # Optional client facts (e.g. confirmed promotion) — framing only, not chart math.
+    if confirmed_milestones:
+        natal_ref = {
+            **natal_ref,
+            "client_facts": {
+                **(natal_ref.get("client_facts") or {}),
+                "confirmed_milestones": list(confirmed_milestones),
+            },
+        }
 
     ctx = build_prediction_context(
         natal_ref,
@@ -250,22 +261,28 @@ def _build_pdf(
         query_lng=query_lng,
         query_tz=query_tz,
     )
-    buf = build_enhanced_pdf(
+    pack_rp = rp_trigger_windows or st.session_state.get("_enh_rp_triggers")
+    if pack_rp:
+        ctx = {**ctx, "rp_trigger_summary": summarise_rp_triggers_for_pdf(pack_rp)}
+    buf = build_unified_pdf(
         natal_ref,
         ctx,
+        chart_result=chart_result,
         almanac_days=almanac_days,
         topics=topics or None,
         query_lat=query_lat,
         query_lng=query_lng,
         query_tz=query_tz,
         query_city=query_city,
+        confirmed_milestones=list(confirmed_milestones or []),
+        rp_trigger_windows=pack_rp,
     )
     return buf, ctx
 
 
-def _show_results(ctx: dict, buf: io.BytesIO, filename: str, dl_key: str = "dl_pdf") -> None:
-    """Show ruling planets summary and download buttons."""
-    st.success("Enhanced report ready!")
+def _show_pdf_download(ctx: dict, buf: io.BytesIO, filename: str, dl_key: str = "dl_pdf") -> None:
+    """Show ruling planets summary and the single Report PDF download."""
+    st.success("Report PDF ready")
 
     rp = ctx.get("ruling_planets", {})
     if rp.get("rp_list"):
@@ -280,33 +297,8 @@ def _show_results(ctx: dict, buf: io.BytesIO, filename: str, dl_key: str = "dl_p
         file_name=filename,
         mime="application/pdf",
         key=dl_key,
+        type="primary",
     )
-
-    results_filename = filename.replace(".pdf", "_results.json")
-
-    def _serial(obj):
-        if hasattr(obj, "isoformat"):
-            return obj.isoformat()
-        raise TypeError(f"Not serialisable: {type(obj)}")
-
-    try:
-        ctx_bytes = json.dumps(
-            ctx, indent=2, ensure_ascii=False, default=_serial,
-        ).encode("utf-8")
-        st.download_button(
-            label="📥 Download Prediction Results JSON (for AI interpreter)",
-            data=ctx_bytes,
-            file_name=results_filename,
-            mime="application/json",
-            key=dl_key + "_json",
-            help=(
-                "Machine-readable prediction context: dasha, transits, RP, "
-                "event evidence, hora, kalam, panchanga — everything the AI needs. "
-                "This is separate from your locked natal_ref.json."
-            ),
-        )
-    except Exception:
-        pass
 
 
 def _build_session_natal_ref(
@@ -407,6 +399,28 @@ def _pdf_config_widgets(key_prefix: str) -> tuple:
     return q_date, q_time, 90
 
 
+def _resolve_prediction_location(prediction_location: str) -> str:
+    """Birth-form location wins when freshly set; otherwise keep the override widget."""
+    from_form = (prediction_location or st.session_state.get("prediction_location", "")).strip()
+    if from_form and st.session_state.get("_pred_loc_synced") != from_form:
+        st.session_state["_pred_loc_synced"] = from_form
+        st.session_state["enh_pred_loc"] = from_form
+    if "enh_pred_loc" not in st.session_state:
+        st.session_state["enh_pred_loc"] = from_form
+    return (st.session_state.get("enh_pred_loc") or from_form or "").strip()
+
+
+def _geocode_cached(place: str) -> tuple[Optional[float], Optional[float], Optional[str]]:
+    cache = st.session_state.setdefault("_enh_geocode_cache", {})
+    key = place.strip().lower()
+    if key in cache:
+        return cache[key]
+    result = _geocode_location(place)
+    if result[0] is not None:
+        cache[key] = result
+    return result
+
+
 def render_enhanced_report_section(
     chart_result: dict,
     name: str,
@@ -414,17 +428,17 @@ def render_enhanced_report_section(
     tob,
     place: str,
     numerology: Optional[dict] = None,
+    prediction_location: str = "",
 ) -> None:
     """
-    Render the Enhanced KP Report section.
-    Call once after the existing st.download_button in app.py.
-    Works for any user — no hardcoded paths, no single-user assumptions.
+    Render the KP Report section: one auto-built PDF + optional AI pack ZIP.
+    Prediction location comes from the birth form on first generate.
     """
     st.markdown("---")
-    st.markdown("### ✦ Enhanced KP Report")
+    st.markdown("### ✦ KP Report")
     st.caption(
-        "Locked natal reference · Evidence PDF · one AI Calculation Pack ZIP "
-        "(natal + 90-day pack + rules + long-term transits)"
+        "One Calculation & Evidence PDF builds automatically from your current city. "
+        "AI Calculation Pack ZIP is a separate optional download."
     )
 
     st.markdown("#### 1 · Natal reference")
@@ -483,33 +497,72 @@ def render_enhanced_report_section(
 
     st.markdown("#### 2 · Prediction location")
     st.caption(
-        "Required for PDF, 90-day pack, Hora, Kalam, and Ruling Planets. "
-        "Birth location is never used here."
+        "Taken from **Current city** on the birth form. Birth place is never used here."
     )
-    q_location = st.text_input(
-        "Current city (city, country)",
-        value="",
-        key="enh_pred_loc",
-        placeholder="e.g. Hyderabad, India",
-        help=(
-            "All dynamic calculations use THIS location. "
-            "Natal/birth location is stored only in natal JSON."
-        ),
-    )
-    if not q_location.strip():
-        st.warning("Enter your prediction location before generating PDF or pack.")
+    q_location = _resolve_prediction_location(prediction_location)
+    with st.expander("Change prediction location", expanded=not bool(q_location)):
+        st.text_input(
+            "Current city (city, country)",
+            key="enh_pred_loc",
+            placeholder="e.g. Hyderabad, India",
+            help=(
+                "All dynamic calculations use THIS location. "
+                "Natal/birth location is stored only in natal JSON."
+            ),
+        )
+        q_location = (st.session_state.get("enh_pred_loc") or "").strip()
+    if q_location:
+        st.info(f"Prediction location: **{q_location}**")
+        st.session_state["prediction_location"] = q_location
+    else:
+        st.warning(
+            "Enter **Current city (prediction location)** on the birth form "
+            "and click Generate Complete KP Chart."
+        )
 
     st.markdown("---")
 
-    st.markdown("#### 3 · Evidence PDF")
-    st.caption("Calculation & evidence report — no prediction narrative in the PDF itself.")
+    st.markdown("#### 3 · Report PDF")
+    st.caption(
+        "Single Calculation & Evidence Report — built automatically once the chart "
+        "and prediction location are set. No AI predictions in the PDF."
+    )
     q_date, q_time, alm_days = _pdf_config_widgets("enh_pdf")
+    promo_confirmed = st.checkbox(
+        "Promotion already announced / effective (post-promotion assessment)",
+        value="promotion_announced" in (
+            (st.session_state.get("confirmed_milestones") or [])
+        ),
+        key="enh_promo_confirmed",
+        help=(
+            "When checked, the Report PDF treats promotion as confirmed and lists "
+            "implementation / authority / pay / team themes — never as a pending event."
+        ),
+    )
+    milestones = ["promotion_announced", "promotion_effective"] if promo_confirmed else []
+    st.session_state["confirmed_milestones"] = milestones
+    force_rebuild = st.button("Rebuild PDF", key="enh_pdf_rebuild")
 
-    if st.button("Generate Enhanced Report ✨", key="enh_pdf_btn", type="primary"):
-        if not q_location.strip():
-            st.error("Prediction location is required.")
-        else:
-            qlat, qlng, qtz = _geocode_location(q_location)
+    if q_location:
+        time_parts = (q_time or "09:00").split(":")
+        try:
+            qtime_str = f"{int(time_parts[0]):02d}:{int(time_parts[1]):02d}:00"
+        except (ValueError, IndexError):
+            qtime_str = "09:00:00"
+            st.warning("Invalid reference time — using 09:00.")
+
+        pdf_fingerprint = (
+            f"{safe_name}|{birth.get('date','')}|{q_location}|{q_date}|{qtime_str}|"
+            f"{alm_days}|{','.join(milestones)}"
+        )
+        needs_build = (
+            force_rebuild
+            or st.session_state.get("_enh_pdf_key") != pdf_fingerprint
+            or not st.session_state.get("_enh_buf")
+        )
+
+        if needs_build:
+            qlat, qlng, qtz = _geocode_cached(q_location)
             if qlat is None:
                 st.error(
                     f"Could not geocode '{q_location}'. "
@@ -517,42 +570,46 @@ def render_enhanced_report_section(
                 )
             else:
                 try:
-                    time_parts = (q_time or "09:00").split(":")
-                    qtime_str = f"{int(time_parts[0]):02d}:{int(time_parts[1]):02d}:00"
                     with st.spinner(
-                        f"Computing KP engines + building {alm_days}-day almanac (~90 sec)…"
+                        f"Building Report PDF + {alm_days}-day almanac for {q_location}…"
                     ):
                         buf, ctx = _build_pdf(
                             natal_ref, q_date, qtime_str, alm_days, list(ALL_TOPICS),
                             query_lat=qlat, query_lng=qlng, query_tz=qtz,
-                            query_city=q_location.strip(),
+                            query_city=q_location,
+                            chart_result=chart_result,
+                            confirmed_milestones=milestones,
+                            rp_trigger_windows=st.session_state.get("_enh_rp_triggers"),
                         )
                     st.session_state["_enh_buf"] = buf.getvalue()
                     st.session_state["_enh_ctx"] = ctx
-                    st.session_state["_enh_fn"] = f"Enhanced_KP_{safe_name}_{q_date}.pdf"
+                    st.session_state["_enh_fn"] = f"KP_Report_{safe_name}_{q_date}.pdf"
                     st.session_state["_enh_gen_at"] = utc_now_iso()
+                    st.session_state["_enh_pdf_key"] = pdf_fingerprint
                 except Exception as e:
                     st.error(f"Failed: {e}")
                     import traceback
                     st.code(traceback.format_exc())
 
-    if st.session_state.get("_enh_buf"):
+    if st.session_state.get("_enh_buf") and q_location:
         gen_at = st.session_state.get("_enh_gen_at", "")
         if gen_at:
-            st.caption(f"PDF buffer generated at **{gen_at} UTC** — click Generate again after code updates.")
-        _show_results(
+            st.caption(f"PDF generated at **{gen_at} UTC**.")
+        _show_pdf_download(
             st.session_state["_enh_ctx"],
             io.BytesIO(st.session_state["_enh_buf"]),
             st.session_state["_enh_fn"],
             dl_key="enh_pdf_dl",
         )
+    elif not q_location:
+        st.info("Report PDF will appear here after you set the current city.")
 
     st.markdown("---")
 
     st.markdown("#### 4 · AI Calculation Pack (ZIP)")
     st.caption(
-        "One download for your AI project: natal lock + 90-day daily calculations + "
-        "`kp_rules.json` + long-term transits. Files stay separate inside the ZIP."
+        "Optional separate download for your AI project: natal lock + 90-day daily "
+        "calculations + `kp_rules.json` + long-term transits."
     )
 
     with st.form("enh_pack_form"):
@@ -568,9 +625,9 @@ def render_enhanced_report_section(
                       "regardless, so any exact time can be looked up later."),
             )
         pack_loc = st.text_input(
-            "Prediction location (defaults to section 2 if blank)",
+            "Prediction location (defaults to current city if blank)",
             value="", key="enh_pack_loc",
-            placeholder="Leave blank to use location from section 2",
+            placeholder="Leave blank to use current city from birth form",
         )
         pack_submitted = st.form_submit_button(
             "Generate AI Calculation Pack 📦", type="primary",
@@ -579,9 +636,9 @@ def render_enhanced_report_section(
     if pack_submitted:
         effective_loc = (pack_loc or q_location or "").strip()
         if not effective_loc:
-            st.error("Prediction location is required (section 2 or pack form).")
+            st.error("Prediction location is required (birth form current city or pack form).")
         else:
-            qlat, qlng, qtz = _geocode_location(effective_loc)
+            qlat, qlng, qtz = _geocode_cached(effective_loc)
             if qlat is None:
                 st.error(
                     f"Could not geocode '{effective_loc}'. "
@@ -637,6 +694,9 @@ def render_enhanced_report_section(
                         "files": [natal_fn, pack_fn, rules_fn, lt_fn],
                         "gen_at": utc_now_iso(),
                     }
+                    # Attach timed-RP summary so Rebuild PDF can show section B.
+                    st.session_state["_enh_rp_triggers"] = pack.get("rp_trigger_windows")
+                    st.session_state["_enh_pdf_key"] = None  # force PDF rebuild with pack data
                 except Exception as e:
                     import traceback
                     st.error(f"Pack generation failed: {e}")
@@ -691,5 +751,6 @@ def render_enhanced_report_section(
         st.info(
             "Unzip and upload these four files to your AI project:\n"
             + "\n".join(f"- `{fn}`" for fn in ai_pack["files"])
-            + "\n\nRegenerate every 60–75 days."
+            + f"\n\nThe 90-day pack covers **{pack['valid_from']} → {pack['valid_to']}**. "
+            "Generate a new pack before that end date so questions stay inside coverage."
         )

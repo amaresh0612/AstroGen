@@ -39,8 +39,8 @@ def verdict_for_score(pct10: float) -> str:
 # Manifestation map: topic → [(min score/10, ranked manifestations)], highest tier first.
 MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
     "career": [
-        (7.5, ["Promotion or significant role advancement",
-               "New high-responsibility assignment", "Job change to better position"]),
+        (7.5, ["Significant role advancement or high-responsibility assignment",
+               "Job change to a stronger position"]),
         (4.5, ["Increased recognition / visibility",
                "Leadership or project ownership opportunity",
                "Performance evaluation milestone"]),
@@ -50,11 +50,50 @@ MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
     "promotion": [
         (7.5, ["Direct promotion with title / compensation change",
                "Fast-track advancement in current organisation"]),
-        (4.5, ["Promotion discussion or shortlisting",
-               "Increased authority without title change yet"]),
-        (0.0, ["Recognition only — formal promotion not yet indicated",
-               "Groundwork period"]),
+        (4.5, ["Increased authority or expanded brief under review",
+               "Recognition that may precede a formal title change"]),
+        (0.0, ["Recognition / groundwork phase — treat title change as unconfirmed",
+               "Background career movement only"]),
     ],
+}
+
+# When promotion is already announced / effective — assess aftermath, not pending event.
+POST_PROMOTION_MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
+    "promotion": [
+        (7.5, [
+            "Implementation of the announced role settling as intended",
+            "Decision-making authority and accountability matching the new designation",
+            "Salary, bonus or benefits revision aligning with the announced change",
+        ]),
+        (4.5, [
+            "Additional responsibilities and workload absorbing into the new role",
+            "Management support and sponsorship for the designation",
+            "Team / reporting-line changes taking practical effect",
+        ]),
+        (0.0, [
+            "Post-announcement settling — assess authority, pay and implementation separately",
+            "Further progression beyond the confirmed milestone not yet separately evidenced",
+        ]),
+    ],
+    "career": [
+        (7.5, [
+            "Consolidation of the confirmed role with clear authority in practice",
+            "Successful delivery under the new designation",
+            "Further career progression beyond the confirmed promotion",
+        ]),
+        (4.5, [
+            "Workload and responsibility ramp after the announcement",
+            "Stakeholder / management support during role transition",
+            "Reporting-line and team adjustments",
+        ]),
+        (0.0, [
+            "Settling period after the confirmed promotion",
+            "Routine delivery — major further move not separately evidenced",
+        ]),
+    ],
+}
+
+MANIFESTATION_MAP.update({
     "job_change": [
         (7.5, ["Successful job change to new organisation",
                "High-profile offer and transition"]),
@@ -139,19 +178,31 @@ MANIFESTATION_MAP: dict[str, list[tuple[float, list[str]]]] = {
         (4.5, ["Active spiritual practice, study, or retreat"]),
         (0.0, ["Spiritual background theme"]),
     ],
-}
+})
 
 
-def _rank_manifestations(topic: str, score_pct10: float, dark_houses: list[int]) -> list[str]:
+def _rank_manifestations(
+    topic: str,
+    score_pct10: float,
+    dark_houses: list[int],
+    *,
+    promotion_confirmed: bool = False,
+) -> list[str]:
     """
-    Return an ordered list of the most likely manifestations.
+    Return an ordered list of evidence themes (not predictions).
+
+    When promotion is confirmed, career/promotion use POST_PROMOTION maps so the
+    report never frames the announced promotion as still pending.
 
     When critical houses are dark (not activated by either CSL or dasha):
     - "Strong" tier items are demoted to conditional
     - "Moderate" tier items become the primary recommendations
     This enforces the Reality Check Rule: Dasha = Permission.
     """
-    tiers = MANIFESTATION_MAP.get(topic, [])
+    if promotion_confirmed and topic in POST_PROMOTION_MANIFESTATION_MAP:
+        tiers = POST_PROMOTION_MANIFESTATION_MAP[topic]
+    else:
+        tiers = MANIFESTATION_MAP.get(topic, [])
     if not tiers:
         return ["Refer to natal chart for topic-specific timing"]
 
@@ -285,6 +336,7 @@ def compute_promise_denial(
     active_ad: str,
     active_pd: str,
     significators: Optional[dict] = None,
+    confirmed_milestones: Optional[list[str]] = None,
 ) -> dict:
     """
     Compute promise/denial verdict for a single topic.
@@ -299,10 +351,17 @@ def compute_promise_denial(
     active_md/ad/pd : Current dasha lord strings
     significators   : Locked natal significators dict — REQUIRED for CSL
                       Direct-House Support (uses signified_houses only)
+    confirmed_milestones : Optional facts (e.g. promotion_announced) that switch
+                      manifestation framing — never chart math.
     """
+    from schemas.client_facts import promotion_is_confirmed
+
     primary_houses = EVENT_HOUSES.get(topic, [])
     denial_houses  = DENIAL_HOUSES.get(topic, [])
     topic_label    = TOPIC_LABELS.get(topic, topic.title())
+    promo_confirmed = promotion_is_confirmed(
+        {"confirmed_milestones": confirmed_milestones or []}
+    )
 
     if not primary_houses:
         return {
@@ -538,7 +597,13 @@ def compute_promise_denial(
         "dark_houses":          dark_houses,
         "house_activation":     house_activation,
         "strong_significators": strong_sigs,
-        "manifestations":       _rank_manifestations(topic, pct10, dark_houses),
+        "manifestations":       _rank_manifestations(
+            topic, pct10, dark_houses, promotion_confirmed=promo_confirmed,
+        ),
+        "manifestation_mode": (
+            "post_promotion_assessment" if promo_confirmed and topic in ("promotion", "career")
+            else "standard"
+        ),
         "score": {
             "pct10":        pct10,
             "csl_layer":    round(csl_score, 1),
@@ -560,6 +625,7 @@ def compute_all_topics(
     active_pd: str,
     topics: Optional[list[str]] = None,
     significators: Optional[dict] = None,
+    confirmed_milestones: Optional[list[str]] = None,
 ) -> list[dict]:
     """
     Compute promise/denial for multiple topics.
@@ -576,6 +642,7 @@ def compute_all_topics(
             topic, planets, houses, cuspal_sublords, strength_map,
             active_md, active_ad, active_pd,
             significators=significators,
+            confirmed_milestones=confirmed_milestones,
         )
         for topic in topics
     ]

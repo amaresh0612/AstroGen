@@ -66,7 +66,7 @@ def test_pack_follows_locked_pd_across_boundary(natal):
                             reference_time="09:00")
     v = pack["validation"]
     assert v["overall"] == "PASS", v["issues"]
-    assert v["warnings"] == []
+    # Soft semantic warnings (e.g. dasha-without-RP) are allowed; they must not fail the pack.
     pds = [d["dasha"]["pd"]["lord"] for d in pack["days"]]
     assert len(set(pds)) == 2, pds
     assert all(d["dasha"]["source"].startswith("LOCKED") for d in pack["days"])
@@ -87,8 +87,9 @@ def test_longterm_transits_schema(natal):
     assert lt["transits"]
     for t in lt["transits"]:
         assert {"planet", "ingress_date", "transit_house", "transit_house_sign",
-                "conjunct_natal_planets"} <= set(t)
-        for p in t["conjunct_natal_planets"]:
+                "same_sign_natal_planets"} <= set(t)
+        assert "conjunct_natal_planets" not in t
+        for p in t["same_sign_natal_planets"]:
             assert natal["planets"][p]["sign"] == t["to_sign"]
 
 

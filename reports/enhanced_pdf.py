@@ -249,73 +249,14 @@ def _cover_story(natal_ref: dict, ctx: dict, styles) -> list:
             rp_table,
         ])
 
-        # RP event alignment (if computed)
-        rp_match = rp.get("rp_event_match", {})
-        if rp_match:
-            rp_align_sty = ParagraphStyle("rp_align_h", parent=styles["Normal"],
-                                          fontSize=7, textColor=colors.HexColor("#333333"),
-                                          leading=9, spaceBefore=2)
-            bold7 = ParagraphStyle("bold7", parent=styles["Normal"],
-                                   fontSize=7, fontName="Helvetica-Bold", leading=9)
-            tiny6 = ParagraphStyle("tiny6", parent=styles["Normal"],
-                                   fontSize=6, leading=8)
-
-            story.append(Paragraph("RP × Event House Alignment", h3_sty))
-            story.append(Paragraph(
-                "For each topic, each Ruling Planet's natal house significations are checked "
-                "against the required event houses.  "
-                "Overlap = houses shared by the RP's natal significators and the topic's event houses.  "
-                "RP Support: Strong = 2+ overlap per RP;  Active = 1 overlap;  Weak = no overlap. "
-                "This measures RP support only — not event outcome.",
-                ParagraphStyle("rp_note", parent=styles["Normal"], fontSize=6.5,
-                               textColor=colors.HexColor("#555555"), leading=8.5),
-            ))
-            story.append(Spacer(1, 0.06 * inch))
-
-            for topic, data in rp_match.items():
-                if not isinstance(data, dict):
-                    continue
-                verdict     = data.get("rp_support", data.get("verdict", "Weak"))
-                event_h     = data.get("event_houses", [])
-                matching_rp = data.get("matching_rp", [])
-                if not matching_rp:
-                    continue
-
-                verdict_col = (colors.HexColor("#2E7D32") if verdict == "Strong"
-                               else colors.HexColor("#E65100") if verdict == "Active"
-                               else colors.HexColor("#B71C1C"))
-
-                story.append(Paragraph(
-                    f"<b>{topic.upper()}</b>  "
-                    f"— Event houses: {','.join(str(h) for h in event_h)}  "
-                    f"— RP Support: <b>{verdict}</b>",
-                    rp_align_sty,
-                ))
-                # One row per matching RP
-                tbl_data = [[
-                    Paragraph("RP", bold7),
-                    Paragraph("Natal Sigs", bold7),
-                    Paragraph("Event H", bold7),
-                    Paragraph("Overlap", bold7),
-                    Paragraph("Strength", bold7),
-                ]]
-                for row_r in matching_rp:
-                    tbl_data.append([
-                        Paragraph(row_r["planet"], tiny6),
-                        Paragraph(str(row_r["natal_sigs"]).strip("[]"), tiny6),
-                        Paragraph(str(row_r["event_houses"]).strip("[]"), tiny6),
-                        Paragraph(", ".join(str(h) for h in row_r["overlap"]), tiny6),
-                        Paragraph(row_r["strength"], tiny6),
-                    ])
-                rt = Table(tbl_data,
-                           colWidths=[0.70*inch, 1.50*inch, 0.70*inch, 0.80*inch, 0.60*inch])
-                rt.setStyle(TableStyle([
-                    ("BACKGROUND",  (0, 0), (-1, 0), colors.HexColor("#E3F2FD")),
-                    ("GRID",        (0, 0), (-1, -1), 0.3, colors.grey),
-                    ("TEXTCOLOR",   (-1, 1), (-1, -1), verdict_col),
-                    ("VALIGN",      (0, 0), (-1, -1), "MIDDLE"),
-                ]))
-                story.extend([rt, Spacer(1, 0.06 * inch)])
+        from reports.pdf.rp_evidence_section import (
+            build_static_rp_alignment_section,
+            build_timed_rp_activation_section,
+        )
+        story.extend(build_static_rp_alignment_section(rp))
+        story.extend(build_timed_rp_activation_section(
+            ctx.get("rp_trigger_summary"),
+        ))
 
     story.append(PageBreak())
     return story
